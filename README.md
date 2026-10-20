@@ -28,12 +28,12 @@
 ### 1. Supabase
 
 1. [supabase.com](https://supabase.com) で無料のプロジェクトを作ります（リージョンは Tokyo がおすすめです）。
-2. **SQL Editor** を開き、`supabase/schema.sql` の中身をすべて貼り付けて **Run** を押します。
+2. **SQL Editor** を開き、`supabase/schema.sql` の中身をすべて貼り付けて **Run** を押します。（kurashi-kondate プロジェクトには適用済みです。「ふたりのスペースから抜ける」「メンバーを外す」を使うときだけ、ファイル末尾の「オプション」部分を実行してください）
 3. **Authentication → URL Configuration** を開き、次のように設定します。
    - **Site URL**：`https://jinjinmaru15.github.io/kurashi-kondate/`
    - **Redirect URLs**：同じURLを追加します
    - これを設定しないと、確認メールのリンクが正しいページに戻りません。
-4. **Project Settings → API** の `Project URL` と `anon public` キーを `config.js` に入れます。
+4. **Project Settings → API** の `Project URL` と `anon public` キーを `config.js` に入れます。（設定済みです）
 
 ### 2. GitHub Pages
 

@@ -3,6 +3,8 @@
 --
 -- 使い方: Supabase の SQL Editor にこのファイルの中身をすべて貼り付けて
 --         「Run」を押してください。何度実行しても壊れないように書いてあります。
+--         （kurashi-kondate プロジェクトには適用済みです。末尾の「オプション」の
+--           ふたつの関数だけは未適用なので、使うときは SQL Editor で実行してください）
 --
 -- 考え方
 --  - データはすべて「スペース」に属します。
@@ -239,8 +241,33 @@ drop trigger if exists checked on public.shopping_items;
 create trigger checked before insert or update on public.shopping_items
   for each row execute function public.tg_shopping_checked();
 
+-- 共有スペースは名前だけ、プロフィールは名前と色だけ変更できる
+create or replace function public.tg_space_guard() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  if current_user in ('authenticated', 'anon') and (
+     new.id is distinct from old.id or new.kind is distinct from old.kind
+     or new.owner_id is distinct from old.owner_id or new.created_at is distinct from old.created_at) then
+    raise exception 'only the name can be changed' using errcode = '42501';
+  end if;
+  return new;
+end $$;
+
+create or replace function public.tg_profile_guard() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  if current_user in ('authenticated', 'anon') and (new.id is distinct from old.id or new.created_at is distinct from old.created_at) then
+    raise exception 'only display_name and color can be changed' using errcode = '42501';
+  end if;
+  new.updated_at := now();
+  return new;
+end $$;
+
 drop trigger if exists touch on public.profiles;
-create trigger touch before update on public.profiles for each row execute function public.tg_touch();
+drop trigger if exists guard on public.profiles;
+create trigger guard before update on public.profiles for each row execute function public.tg_profile_guard();
+drop trigger if exists guard on public.spaces;
+create trigger guard before update on public.spaces for each row execute function public.tg_space_guard();
 drop trigger if exists touch on public.user_settings;
 create trigger touch before update on public.user_settings for each row execute function public.tg_touch();
 
@@ -292,7 +319,7 @@ begin
   return sid;
 end $$;
 
--- 招待コードを発行（3日間・1回だけ有効。前に出した未使用コードは無効になる）
+-- 招待コードを発行（3日間・1回だけ有効。前に出した未使用コードは期限切れにする）
 create or replace function public.create_invite(p_space uuid) returns text
 language plpgsql security definer set search_path = '' as $$
 declare
@@ -308,7 +335,8 @@ begin
   if (select kind from public.spaces where id = p_space) <> 'shared' then
     raise exception 'not_shared_space' using errcode = 'P0001';
   end if;
-  delete from public.space_invites where space_id = p_space and used_at is null;
+  update public.space_invites set expires_at = now() - interval '1 second'
+  where space_id = p_space and used_at is null and expires_at > now();
   loop
     b := uuid_send(gen_random_uuid()) || uuid_send(gen_random_uuid());
     c := '';
@@ -352,42 +380,6 @@ begin
   return inv.space_id;
 end $$;
 
--- ふたりのスペースから抜ける（最後の1人は抜けられない）
-create or replace function public.leave_space(p_space uuid) returns void
-language plpgsql security definer set search_path = '' as $$
-declare
-  uid uuid := auth.uid();
-  sp public.spaces%rowtype;
-  next_owner uuid;
-begin
-  if uid is null then raise exception 'not_signed_in' using errcode = '28000'; end if;
-  select * into sp from public.spaces where id = p_space;
-  if not found or not public.is_member(p_space) then raise exception 'not_member' using errcode = '42501'; end if;
-  if sp.kind <> 'shared' then raise exception 'not_shared_space' using errcode = 'P0001'; end if;
-  if (select count(*) from public.space_members where space_id = p_space) <= 1 then
-    raise exception 'last_member' using errcode = 'P0001';
-  end if;
-  delete from public.space_members where space_id = p_space and user_id = uid;
-  if sp.owner_id = uid then
-    select user_id into next_owner from public.space_members where space_id = p_space order by joined_at limit 1;
-    update public.spaces set owner_id = next_owner where id = p_space;
-    update public.space_members set role = 'owner' where space_id = p_space and user_id = next_owner;
-  end if;
-end $$;
-
--- メンバーを外す（スペースの作成者だけ）
-create or replace function public.remove_member(p_space uuid, p_user uuid) returns void
-language plpgsql security definer set search_path = '' as $$
-declare uid uuid := auth.uid();
-begin
-  if uid is null then raise exception 'not_signed_in' using errcode = '28000'; end if;
-  if not exists (select 1 from public.spaces where id = p_space and owner_id = uid and kind = 'shared') then
-    raise exception 'not_owner' using errcode = '42501';
-  end if;
-  if p_user = uid then raise exception 'cannot_remove_self' using errcode = 'P0001'; end if;
-  delete from public.space_members where space_id = p_space and user_id = p_user;
-end $$;
-
 -- ---------------------------------------------------------------------
 -- 権限（未ログインは何もできない。ログイン済みも RLS の範囲だけ）
 -- ---------------------------------------------------------------------
@@ -412,14 +404,15 @@ grant select, insert, update on public.user_settings to authenticated;
 revoke execute on function
   public.is_member(uuid), public.space_has_user(uuid, uuid), public.shares_space_with(uuid),
   public.bootstrap(text), public.create_shared_space(text), public.create_invite(uuid),
-  public.accept_invite(text), public.leave_space(uuid), public.remove_member(uuid, uuid),
-  public.tg_audit(), public.tg_shopping_checked(), public.tg_touch()
+  public.accept_invite(text),
+  public.tg_audit(), public.tg_shopping_checked(), public.tg_touch(),
+  public.tg_space_guard(), public.tg_profile_guard()
 from public, anon, authenticated;
 
 grant execute on function
   public.is_member(uuid), public.space_has_user(uuid, uuid), public.shares_space_with(uuid),
   public.bootstrap(text), public.create_shared_space(text), public.create_invite(uuid),
-  public.accept_invite(text), public.leave_space(uuid), public.remove_member(uuid, uuid)
+  public.accept_invite(text)
 to authenticated;
 
 -- ---------------------------------------------------------------------
@@ -467,10 +460,11 @@ begin
     execute format('drop policy if exists member_insert on public.%I', t);
     execute format('drop policy if exists member_update on public.%I', t);
     execute format('drop policy if exists member_delete on public.%I', t);
+    execute format('drop policy if exists member_remove on public.%I', t);
     execute format('create policy member_select on public.%I for select to authenticated using (public.is_member(space_id))', t);
     execute format('create policy member_insert on public.%I for insert to authenticated with check (public.is_member(space_id))', t);
     execute format('create policy member_update on public.%I for update to authenticated using (public.is_member(space_id)) with check (public.is_member(space_id))', t);
-    execute format('create policy member_delete on public.%I for delete to authenticated using (public.is_member(space_id))', t);
+    execute format('create policy member_remove on public.%I for delete to authenticated using (public.is_member(space_id))', t);
   end loop;
 end $$;
 
@@ -485,7 +479,8 @@ create policy member_update on public.events for update to authenticated
   using (public.is_member(space_id))
   with check (public.is_member(space_id) and public.space_has_user(space_id, person_id));
 drop policy if exists member_delete on public.events;
-create policy member_delete on public.events for delete to authenticated
+drop policy if exists member_remove on public.events;
+create policy member_remove on public.events for delete to authenticated
   using (public.is_member(space_id));
 
 drop policy if exists own_settings on public.user_settings;
@@ -510,3 +505,47 @@ begin
     end loop;
   end if;
 end $$;
+
+-- =====================================================================
+-- オプション：「ふたりのスペースから抜ける」「メンバーを外す」
+-- 使うときだけ、この下を SQL Editor で実行してください。
+-- =====================================================================
+
+-- ふたりのスペースから抜ける（最後の1人は抜けられない）
+create or replace function public.leave_space(p_space uuid) returns void
+language plpgsql security definer set search_path = '' as $$
+declare
+  uid uuid := auth.uid();
+  sp public.spaces%rowtype;
+  next_owner uuid;
+begin
+  if uid is null then raise exception 'not_signed_in' using errcode = '28000'; end if;
+  select * into sp from public.spaces where id = p_space;
+  if not found or not public.is_member(p_space) then raise exception 'not_member' using errcode = '42501'; end if;
+  if sp.kind <> 'shared' then raise exception 'not_shared_space' using errcode = 'P0001'; end if;
+  if (select count(*) from public.space_members where space_id = p_space) <= 1 then
+    raise exception 'last_member' using errcode = 'P0001';
+  end if;
+  delete from public.space_members where space_id = p_space and user_id = uid;
+  if sp.owner_id = uid then
+    select user_id into next_owner from public.space_members where space_id = p_space order by joined_at limit 1;
+    update public.spaces set owner_id = next_owner where id = p_space;
+    update public.space_members set role = 'owner' where space_id = p_space and user_id = next_owner;
+  end if;
+end $$;
+
+-- メンバーを外す（スペースの作成者だけ）
+create or replace function public.remove_member(p_space uuid, p_user uuid) returns void
+language plpgsql security definer set search_path = '' as $$
+declare uid uuid := auth.uid();
+begin
+  if uid is null then raise exception 'not_signed_in' using errcode = '28000'; end if;
+  if not exists (select 1 from public.spaces where id = p_space and owner_id = uid and kind = 'shared') then
+    raise exception 'not_owner' using errcode = '42501';
+  end if;
+  if p_user = uid then raise exception 'cannot_remove_self' using errcode = 'P0001'; end if;
+  delete from public.space_members where space_id = p_space and user_id = p_user;
+end $$;
+
+revoke execute on function public.leave_space(uuid), public.remove_member(uuid, uuid) from public, anon;
+grant execute on function public.leave_space(uuid), public.remove_member(uuid, uuid) to authenticated;

@@ -1367,6 +1367,7 @@ function rpcErrText(e){
   if (/already_in_shared_space/.test(m)) return 'すでに別のふたりのスペースに参加しています';
   if (/last_member/.test(m)) return '最後のメンバーは抜けられません';
   if (/not_owner/.test(m)) return 'メンバーを外せるのはスペースを作った人だけです';
+  if (/Could not find the function|PGRST202|does not exist/i.test(m)) return 'この機能はまだ準備中です。Supabase で schema.sql の「オプション」を実行すると使えます';
   if (isNetErr(e)) return '通信できませんでした。電波のよいところでもう一度お試しください';
   return 'うまくいきませんでした。もう一度お試しください';
 }
