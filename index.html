@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>くらしの献立帖</title>
+<meta name="description" content="ふたりで使う、献立・レシピ・買い物リスト・予定の手帳">
+<meta name="theme-color" content="#FFFCF6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1E1918" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="献立帖">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Klee+One:wght@600&family=Zen+Maru+Gothic:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="styles.css?v=__BUILD__">
+</head>
+<body>
+<div id="app">
+  <main id="view"><div class="gate"><div><div class="brand">くらしの献立帖</div><p>読み込み中…</p></div></div></main>
+</div>
+<nav class="tabs" aria-label="メインメニュー" id="tabs" hidden></nav>
+<div id="sheets"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<datalist id="unit-list"><option value="g"><option value="ml"><option value="個"><option value="本"><option value="枚"><option value="束"><option value="袋"><option value="パック"><option value="大さじ"><option value="小さじ"><option value="カップ"><option value="片"><option value="かけ"><option value="玉"><option value="株"><option value="切れ"><option value="尾"><option value="丁"><option value="合"><option value="適量"><option value="少々"></datalist>
+<noscript><p style="padding:24px">このアプリを使うには JavaScript を有効にしてください。</p></noscript>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0"></script>
+<script src="config.js?v=__BUILD__"></script>
+<script src="app.js?v=__BUILD__"></script>
+</body>
+</html>

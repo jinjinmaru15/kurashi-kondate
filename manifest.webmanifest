@@ -1,0 +1,17 @@
+{
+  "name": "くらしの献立帖",
+  "short_name": "献立帖",
+  "description": "ふたりで使う、献立・レシピ・買い物リスト・予定の手帳",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FFFCF6",
+  "theme_color": "#FFFCF6",
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}
