@@ -634,7 +634,7 @@ function calHTML(){
     + '<h1 class="month-title"><small>' + d.getFullYear() + '年</small>' + (d.getMonth() + 1) + '月</h1>'
     + '<button class="icon-btn" data-act="calNav" data-n="1" aria-label="' + (S.cal.view === 'month' ? '次の月' : '次の週') + '">' + IC.right + '</button>'
     + '<span class="sp"></span>'
-    + '<button class="icon-btn boxed" data-act="openImport" aria-label="写真から勤務を読み込む">' + IC.cam + '</button>'
+    + (CFG.aiImport ? '<button class="icon-btn boxed" data-act="openImport" aria-label="写真から勤務を読み込む">' + IC.cam + '</button>' : '')
     + '<button class="icon-btn boxed" data-act="openSearch" aria-label="過去の献立を検索">' + IC.search + '</button>'
     + '<button class="icon-btn boxed" data-act="openGen" data-from="cal" aria-label="献立から買い物リストを作る">' + IC.cart + '</button>'
     + '</div>'

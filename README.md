@@ -61,6 +61,7 @@ Safari でアプリを開き、共有ボタン →「ホーム画面に追加」
 - 写真はこのアプリには保存しません。
 
 使うための設定（1回だけ）：
+0. `config.js` の `aiImport` を `true` にします（初期状態はオフで、カメラボタンは表示されません）。
 1. [Claude Console](https://platform.claude.com/) でアカウントを作り、クレジット（前払い）を追加して、API キーを発行します。
 2. Supabase の **Edge Functions → Secrets** に、名前 `ANTHROPIC_API_KEY` で API キーを登録します。
 
