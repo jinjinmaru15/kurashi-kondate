@@ -19,7 +19,7 @@
   --font-body:"Zen Maru Gothic","Hiragino Maru Gothic ProN","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
   --font-hand:"Klee One","Zen Maru Gothic","Hiragino Mincho ProN",serif;
   --r-lg:20px; --r-md:16px; --r-sm:12px;
-  --bun-fur:#FFF8EE; --bun-line:#8E6E60; --bun-inear:#F8C9CF; --bun-cheek:#F5A9B4; --bun-scarf:#E9909E; --bun-eye:#4A3530;
+  --bun-fur:#FBDDE3; --bun-line:#9A6A70; --bun-inear:#F2AFBC; --bun-cheek:#EE8E9F; --bun-nose:#DE7488; --bun-eye:#4A3132;
 }
 @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
   --paper:#1E1918; --paper-2:#27201F; --card:#2B2423; --dot:#2C2524;
@@ -446,14 +446,12 @@ select.in{padding-right:30px;background-image:linear-gradient(45deg,transparent 
 .bun-svg{width:78px;height:78px;display:block;overflow:visible}
 .bun-fur{fill:var(--bun-fur);stroke:var(--bun-line);stroke-width:2;stroke-linejoin:round}
 .bun-inear{fill:var(--bun-inear)}
-.bun-scarf{fill:var(--bun-scarf);stroke:var(--bun-line);stroke-width:1.6;stroke-linejoin:round}
-.bun-dot{fill:#FFF8EE}
 .bun-eye{fill:var(--bun-eye)}
 .bun-shine{fill:#fff}
 .bun-cheek{fill:var(--bun-cheek);opacity:.75}
-.bun-nose{fill:var(--bun-scarf)}
+.bun-nose{fill:var(--bun-nose)}
 .bun-mouth{fill:none;stroke:var(--bun-line);stroke-width:1.5;stroke-linecap:round}
-.bun-ear{transform-origin:52px 36px}
+.bun-ear{transform-origin:51px 38px}
 .bun-eyes{transform-origin:40px 50px;animation:bun-blink 5.5s infinite}
 .bun-btn.hop .bun-svg{animation:bun-hop .55s ease}
 .bun-btn.hop .bun-ear{animation:bun-ear .55s ease}

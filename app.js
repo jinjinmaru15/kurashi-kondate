@@ -632,19 +632,16 @@ function inviteCardHTML(){
 }
 /* ---------- こむぎ（うさぎのお知らせ係） ---------- */
 const BUNNY_SVG = '<svg class="bun-svg" viewBox="0 0 80 80" aria-hidden="true">'
-  + '<path class="bun-fur" d="M30.5 33 C 22 25.5, 10 25, 6.5 32.5 C 4.6 37, 9 40.4, 15 38.6 C 21 36.8, 26.5 36.2, 32 37.4 Z"/>'
-  + '<path class="bun-inear" d="M28.5 33.6 C 21.5 29.6, 13.5 29.4, 10.4 33.2 C 9.4 35.4, 12 36.6, 16 35.6 C 20 34.6, 24.4 34.2, 28.4 35 Z"/>'
-  + '<ellipse class="bun-fur" cx="40" cy="49" rx="24.5" ry="21"/>'
-  + '<path class="bun-scarf" d="M17.2 43.5 C 18 29.5, 62 29.5, 62.8 43.5 C 55 38.6, 25 38.6, 17.2 43.5 Z"/>'
-  + '<circle class="bun-dot" cx="29" cy="36.6" r="1.2"/><circle class="bun-dot" cx="37" cy="34.2" r="1.2"/><circle class="bun-dot" cx="45.5" cy="34.4" r="1.2"/><circle class="bun-dot" cx="53" cy="36.8" r="1.2"/>'
-  + '<path class="bun-scarf" d="M61.5 39.5 L 70 35.5 L 68.6 44.2 Z"/><path class="bun-scarf" d="M61.8 40.6 L 70.6 45.6 L 63.6 47.6 Z"/>'
-  + '<g class="bun-ear"><path class="bun-fur" d="M47.5 36 C 45 19, 49.5 4.5, 56 5 C 62.5 5.6, 62 20, 56.5 37 Z"/>'
-  + '<path class="bun-inear" d="M51 31.5 C 50.2 19.5, 52.6 10.2, 55.8 10.4 C 58.8 10.8, 58.2 20, 55 32 Z"/></g>'
-  + '<g class="bun-eyes"><ellipse class="bun-eye" cx="31" cy="50" rx="2.7" ry="3.3"/><ellipse class="bun-eye" cx="49" cy="50" rx="2.7" ry="3.3"/>'
-  + '<circle class="bun-shine" cx="31.9" cy="48.8" r="0.95"/><circle class="bun-shine" cx="49.9" cy="48.8" r="0.95"/></g>'
-  + '<ellipse class="bun-cheek" cx="24.6" cy="56.6" rx="4.4" ry="2.7"/><ellipse class="bun-cheek" cx="55.4" cy="56.6" rx="4.4" ry="2.7"/>'
-  + '<path class="bun-nose" d="M37.9 54.4 Q 40 53 42.1 54.4 Q 40 56.6 37.9 54.4 Z"/>'
-  + '<path class="bun-mouth" d="M40 56 V 57.4 M40 57.4 Q 38.1 59.6 36.4 58 M40 57.4 Q 41.9 59.6 43.6 58"/>'
+  + '<path class="bun-fur" d="M31 34 C 22.5 26.5, 10.5 26, 7 33.5 C 5.1 38, 9.5 41.4, 15.5 39.6 C 21.5 37.8, 27 37.2, 32.5 38.4 Z"/>'
+  + '<path class="bun-inear" d="M29 34.6 C 22 30.6, 14 30.4, 10.9 34.2 C 9.9 36.4, 12.5 37.6, 16.5 36.6 C 20.5 35.6, 24.9 35.2, 28.9 36 Z"/>'
+  + '<g class="bun-ear"><path class="bun-fur" d="M46 38 C 43.5 20, 48.5 4.5, 55.5 5 C 62.5 5.6, 62 21, 55.5 39 Z"/>'
+  + '<path class="bun-inear" d="M50 32.5 C 49.2 20, 51.8 10.6, 55.2 10.8 C 58.4 11.2, 57.8 20.5, 54.4 33 Z"/></g>'
+  + '<ellipse class="bun-fur" cx="40" cy="50" rx="24.5" ry="21"/>'
+  + '<g class="bun-eyes"><ellipse class="bun-eye" cx="31" cy="50.5" rx="2.6" ry="3.2"/><ellipse class="bun-eye" cx="49" cy="50.5" rx="2.6" ry="3.2"/>'
+  + '<circle class="bun-shine" cx="31.9" cy="49.3" r="0.95"/><circle class="bun-shine" cx="49.9" cy="49.3" r="0.95"/></g>'
+  + '<ellipse class="bun-cheek" cx="24.6" cy="57" rx="4.4" ry="2.7"/><ellipse class="bun-cheek" cx="55.4" cy="57" rx="4.4" ry="2.7"/>'
+  + '<path class="bun-nose" d="M37.9 54.8 Q 40 53.4 42.1 54.8 Q 40 57 37.9 54.8 Z"/>'
+  + '<path class="bun-mouth" d="M40 56.4 V 57.8 M40 57.8 Q 38.1 60 36.4 58.4 M40 57.8 Q 41.9 60 43.6 58.4"/>'
   + '</svg>';
 function bunnyMessages(){
   const t = todayS(), hour = new Date().getHours();
