@@ -51,6 +51,21 @@
 
 Safari でアプリを開き、共有ボタン →「ホーム画面に追加」を選びます。
 
+## 写真から勤務を読み込む（AI）
+
+カレンダー上部の 📷 から、職場の勤務表やほかのカレンダーアプリの画面の写真を選ぶと、AI（Claude）が勤務や予定を読み取ります。追加する前に、日付・種類・時間を確認して直せます。すでに勤務がある日は「置き換える／両方残す／追加しない」を選べます。
+
+しくみ：
+- `supabase/functions/read-shifts`（Supabase Edge Function）が写真を Claude API（`claude-sonnet-5-5`）に送り、決まった形の JSON で結果を受け取ります。
+- ログインしている人だけが使え、1人1日30回までに制限しています（`public.ai_usage`）。
+- 写真はこのアプリには保存しません。
+
+使うための設定（1回だけ）：
+1. [Claude Console](https://platform.claude.com/) でアカウントを作り、クレジット（前払い）を追加して、API キーを発行します。
+2. Supabase の **Edge Functions → Secrets** に、名前 `ANTHROPIC_API_KEY` で API キーを登録します。
+
+利用料の目安は、写真1枚あたり数円〜10円程度です（写真の大きさと予定の数によります）。Console で月の上限額を決めておくと安心です。
+
 ## 以前の版（claude.ai 版）からの引っ越し
 
 claude.ai 版の **設定 → バックアップを書き出す** で保存した JSON を、このアプリの **設定 → バックアップを読み込む** で読み込めます。読み込み先は、そのとき使っているスペース（ふたり／じぶん）です。
@@ -66,6 +81,7 @@ sw.js                 オフライン表示用（Service Worker）
 manifest.webmanifest  ホーム画面アプリの設定
 icons/                アイコン
 supabase/schema.sql   データベースとアクセス制御の定義
+supabase/functions/   写真読み取り用のサーバー関数（Edge Function）
 ```
 
 ## 注意

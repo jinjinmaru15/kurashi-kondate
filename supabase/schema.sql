@@ -506,6 +506,33 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- 写真読み取り（AI）の1日あたりの利用回数。サーバー側の関数だけが読み書きする
+-- ---------------------------------------------------------------------
+
+create table if not exists public.ai_usage (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  day     date not null,
+  count   int  not null default 0,
+  primary key (user_id, day)
+);
+alter table public.ai_usage enable row level security;
+revoke all on table public.ai_usage from anon, authenticated;
+
+create or replace function public.bump_ai_usage(p_user uuid, p_limit int) returns boolean
+language plpgsql security definer set search_path = '' as $$
+declare n int;
+begin
+  insert into public.ai_usage (user_id, day, count)
+  values (p_user, (now() at time zone 'Asia/Tokyo')::date, 1)
+  on conflict (user_id, day) do update set count = public.ai_usage.count + 1
+  returning count into n;
+  return n <= p_limit;
+end $$;
+
+revoke execute on function public.bump_ai_usage(uuid, int) from public, anon, authenticated;
+grant execute on function public.bump_ai_usage(uuid, int) to service_role;
+
 -- =====================================================================
 -- オプション：「ふたりのスペースから抜ける」「メンバーを外す」
 -- 使うときだけ、この下を SQL Editor で実行してください。

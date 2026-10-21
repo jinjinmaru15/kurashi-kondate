@@ -6,7 +6,7 @@
 'use strict';
 
 const CFG = window.KONDATE_CONFIG || {};
-const APP_VERSION = '2.0';
+const APP_VERSION = '2.1';
 
 /* ---------- utils ---------- */
 const $ = (s, r) => (r || document).querySelector(s);
@@ -137,7 +137,8 @@ const IC = {
   x: sv('<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>', 20),
   plus: sv('<path d="M12 5v14M5 12h14"/>', 26),
   bookS: sv('<path d="M4 5.5c2.6-1.1 5.5-1 8 .9v13c-2.5-1.8-5.4-2-8-.9z"/><path d="M20 5.5c-2.6-1.1-5.5-1-8 .9v13c2.5-1.8 5.4-2 8-.9z"/>', 16),
-  ext: sv('<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>', 16)
+  ext: sv('<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>', 16),
+  cam: sv('<path d="M4 8.5h3l1.6-2.5h6.8L17 8.5h3a1 1 0 0 1 1 1V18a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.6"/>', 20)
 };
 
 /* ---------- state ---------- */
@@ -148,7 +149,7 @@ const S = {
   profiles: new Map(), spaces: new Map(), members: [],
   personalId: null, sharedId: null, cur: null,
   recipes: new Map(), meals: new Map(), events: new Map(), shop: new Map(),
-  settings: {weekStart: 0, monthMeals: 'all', shiftTimes: {}, curSpace: null},
+  settings: {weekStart: 0, monthMeals: 'all', shiftTimes: {}, curSpace: null, rosterNames: {}},
   loaded: false, offline: false, ver: 0,
   tab: ['cal','recipes','shop','prefs'].includes(lsGet('tab')) ? lsGet('tab') : 'cal',
   cal: {view: lsGet('calView') === 'week' ? 'week' : 'month', sel: todayS()},
@@ -305,7 +306,8 @@ function applySettings(d){
     weekStart: d.weekStart === 1 ? 1 : 0,
     monthMeals: d.monthMeals === 'main' ? 'main' : 'all',
     shiftTimes: (d.shiftTimes && typeof d.shiftTimes === 'object') ? d.shiftTimes : {},
-    curSpace: typeof d.curSpace === 'string' ? d.curSpace : null
+    curSpace: typeof d.curSpace === 'string' ? d.curSpace : null,
+    rosterNames: (d.rosterNames && typeof d.rosterNames === 'object') ? d.rosterNames : {}
   };
 }
 function pickSpaces(){
@@ -386,7 +388,7 @@ function resetData(){
   S.profiles = new Map(); S.spaces = new Map(); S.members = [];
   S.recipes = new Map(); S.meals = new Map(); S.events = new Map(); S.shop = new Map();
   S.personalId = S.sharedId = S.cur = null; S.loaded = false; S.photoCache = new Map();
-  S.settings = {weekStart: 0, monthMeals: 'all', shiftTimes: {}, curSpace: null};
+  S.settings = {weekStart: 0, monthMeals: 'all', shiftTimes: {}, curSpace: null, rosterNames: {}};
   markDirty();
 }
 
@@ -632,6 +634,7 @@ function calHTML(){
     + '<h1 class="month-title"><small>' + d.getFullYear() + '年</small>' + (d.getMonth() + 1) + '月</h1>'
     + '<button class="icon-btn" data-act="calNav" data-n="1" aria-label="' + (S.cal.view === 'month' ? '次の月' : '次の週') + '">' + IC.right + '</button>'
     + '<span class="sp"></span>'
+    + '<button class="icon-btn boxed" data-act="openImport" aria-label="写真から勤務を読み込む">' + IC.cam + '</button>'
     + '<button class="icon-btn boxed" data-act="openSearch" aria-label="過去の献立を検索">' + IC.search + '</button>'
     + '<button class="icon-btn boxed" data-act="openGen" data-from="cal" aria-label="献立から買い物リストを作る">' + IC.cart + '</button>'
     + '</div>'
@@ -1240,6 +1243,111 @@ SHEETS.newPassword = sh => head('新しいパスワード') + '<div class="sh-bo
   + '<p class="err"' + (sh.err ? '' : ' hidden') + '>' + esc(sh.err || '') + '</p>'
   + '</div><div class="sh-foot"><button class="btn primary block" data-act="npSave">変更する</button></div>';
 
+/* ---------- import shifts from a photo ---------- */
+const IM_TYPES = [['shift:day','日勤'],['shift:evening','準夜勤'],['shift:night','深夜勤'],['shift:off','休み'],['shift:other','その他の勤務'],['plan:out','外出'],['plan:shopping','買い物'],['plan:chores','家事'],['plan:custom','予定（自由入力）']];
+SHEETS.import = sh => {
+  if (sh.step === 'busy') return head('写真から読み込む') + '<div class="sh-body"><div class="empty" style="padding:48px 8px"><div class="em">🔎</div><h2>読み取っています…</h2><p class="small">20〜40秒ほどかかることがあります。この画面のままお待ちください。</p></div></div>';
+  if (sh.step === 'review') return importReviewHTML(sh);
+  const pid = partnerId();
+  const who = sh.who || 'me';
+  return head('写真から読み込む') + '<div class="sh-body">'
+    + '<p class="note">職場の勤務表や、ほかのカレンダーアプリの画面の写真から、勤務や予定を読み取ります。カレンダーに追加する前に、内容を確認・修正できます。</p>'
+    + '<div class="field"><span class="lbl">写真</span><div class="photo-box">' + (sh.preview ? '<span class="pv"><img src="' + esc(sh.preview) + '" alt="選んだ写真"></span>' : '')
+    + '<label class="photo-add" for="im-file">📷 ' + (sh.preview ? '写真を選び直す' : '写真を選ぶ') + '</label><input type="file" id="im-file" accept="image/*" data-ch="imFile" hidden></div>'
+    + (sh.prepping ? '<p class="muted small">写真を準備しています…</p>' : '') + '</div>'
+    + (hasShared() && pid ? '<div class="field"><span class="lbl">だれの予定として入れる？</span><div class="seg wide" role="group">' + [['me', nameOf(S.uid)], ['partner', nameOf(pid)]].map(([v, l]) => '<button data-act="imWho" data-v="' + v + '" aria-pressed="' + (who === v) + '">' + esc(l) + '</button>').join('') + '</div></div>' : '')
+    + '<div class="field"><label for="im-name">勤務表での名前 <small class="muted">（勤務表のときだけ・名字だけでもOK）</small></label><input class="in" id="im-name" value="' + esc(sh.name || '') + '" placeholder="例：山田" autocomplete="off" maxlength="40" data-fresh></div>'
+    + '<div class="field"><label for="im-month">何月の予定？</label><input class="in" type="month" id="im-month" value="' + esc(sh.month || '') + '" data-fresh></div>'
+    + (hasShared() && who === 'me' ? '<div class="field"><span class="lbl">見える人</span><div class="seg wide" role="group"><button data-act="imSpace" data-v="shared" aria-pressed="' + (sh.space !== 'personal') + '">👫 ふたりで共有</button><button data-act="imSpace" data-v="personal" aria-pressed="' + (sh.space === 'personal') + '">🔒 自分だけ</button></div></div>' : '')
+    + '<p class="err"' + (sh.err ? '' : ' hidden') + ' role="alert">' + esc(sh.err || '') + '</p>'
+    + '<p class="muted small" style="margin-top:14px">写真は読み取りのためだけに AI（Claude）へ送られます。このアプリには保存されません。</p>'
+    + '</div><div class="sh-foot"><button class="btn primary block" data-act="imRun"' + (sh.image && !sh.prepping ? '' : ' disabled') + '>読み取る</button></div>';
+};
+function importRowHTML(r, i){
+  const val = r.kind + ':' + r.type;
+  const opts = (list) => list.map(([v, l]) => '<option value="' + v + '"' + (v === val ? ' selected' : '') + '>' + l + '</option>').join('');
+  return '<div class="grow-row' + (r.off ? ' off' : '') + (r.sure ? '' : ' unsure') + '" id="im-row-' + i + '"><label class="gchk"><input type="checkbox" id="im-inc-' + i + '" data-ch="imInc" data-i="' + i + '"' + (r.off ? '' : ' checked') + ' aria-label="この行を追加する"></label><div class="gf">'
+    + '<div class="im-top"><input class="in" type="date" id="im-date-' + i + '" value="' + esc(r.date) + '" aria-label="日付"><select class="in" id="im-type-' + i + '" aria-label="種類"><optgroup label="勤務">' + opts(IM_TYPES.slice(0, 5)) + '</optgroup><optgroup label="予定">' + opts(IM_TYPES.slice(5)) + '</optgroup></select></div>'
+    + '<div class="im-t"><input class="in" id="im-title-' + i + '" value="' + esc(r.title) + '" placeholder="内容（任意）" maxlength="100" aria-label="内容"><input class="in" type="time" id="im-start-' + i + '" value="' + esc(r.start) + '" aria-label="開始"><input class="in" type="time" id="im-end-' + i + '" value="' + esc(r.end) + '" aria-label="終了"></div>'
+    + '<div class="gsrc">' + jpS(r.date) + '・写真の表記「' + esc(r.label || '—') + '」' + (r.sure ? '' : '<b class="unsure-tag">要確認</b>') + '</div>'
+    + (r.conflict ? '<div class="gdup"><span>⚠️ この日はすでに「' + esc(r.conflict.label) + '」があります</span><select class="in" id="im-dup-' + i + '" aria-label="重なったときの扱い"><option value="replace">置き換える</option><option value="keep">両方残す</option><option value="skip">追加しない</option></select></div>' : '')
+    + '</div></div>';
+}
+function importReviewHTML(sh){
+  const rows = sh.rows || [];
+  const whoName = sh.who === 'partner' ? nameOf(partnerId()) : nameOf(S.uid);
+  let body = '<p class="sub">' + esc(whoName) + 'の予定として追加します</p>';
+  if (!sh.found) body += '<div class="hint" style="margin-top:10px">勤務表の中に「' + esc(sh.name || '名前') + '」が見つかりませんでした。' + (sh.note ? '<br>' + esc(sh.note) : '') + '<br>「戻る」で名前を直して、もう一度読み取ってください。</div>';
+  else if (sh.note) body += '<p class="note" style="margin-top:8px">📝 ' + esc(sh.note) + '</p>';
+  if (!rows.length && sh.found) body += '<div class="empty"><div class="em">🗓️</div><h2>予定が見つかりませんでした</h2><p class="small">写真がはっきり写っているか確認して、もう一度お試しください。</p></div>';
+  if (rows.length) {
+    body += '<p class="muted small" style="margin-top:8px">追加しないものはチェックを外してください。日付・種類・時間も直せます。' + (rows.some(r => !r.sure) ? '「要確認」の行は特によく見てください。' : '') + '</p>';
+    body += rows.map((r, i) => importRowHTML(r, i)).join('');
+  }
+  const n = rows.filter(r => !r.off).length;
+  return head('読み取り結果') + '<div class="sh-body" id="im-b">' + body + '</div><div class="sh-foot"><button class="btn" data-act="imBack">戻る</button>'
+    + (rows.length ? '<button class="btn primary grow" data-act="imAdd" id="im-add">' + n + '件をカレンダーに追加</button>' : '') + '</div>';
+}
+function findShiftConflict(date, pid){
+  const ex = getDay(date).events.filter(e => e.kind === 'shift' && e.person_id === pid);
+  return ex.length ? {ids: ex.map(e => e.id), label: ex.map(evLabel).join('・')} : null;
+}
+function buildImportRows(sh, result){
+  const pid = sh.who === 'partner' ? partnerId() : S.uid;
+  const okT = t => /^([01]\d|2[0-3]):[0-5]\d$/.test(t || '') ? t : '';
+  const seen = new Set(), rows = [];
+  (Array.isArray(result.entries) ? result.entries : []).forEach(e => {
+    if (!e || !validDate(e.date)) return;
+    const kind = e.kind === 'plan' ? 'plan' : 'shift';
+    const okType = kind === 'shift' ? SHIFTS.some(x => x.k === e.type) : PLANS.some(x => x.k === e.type);
+    const type = okType ? e.type : (kind === 'shift' ? 'other' : 'custom');
+    const label = String(e.label || '').trim().slice(0, 40);
+    const key = e.date + '|' + kind + '|' + type + '|' + label;
+    if (seen.has(key)) return; seen.add(key);
+    let title = '';
+    if (kind === 'shift' && type === 'other') title = label;
+    if (kind === 'plan') title = type === 'custom' ? label : (label && label !== planOf(type).label ? label : '');
+    let start = okT(e.start), end = okT(e.end);
+    if (kind === 'shift' && type !== 'off' && !start && !end) {
+      const p = (S.settings.shiftTimes || {})[(sh.who === 'partner' ? 'p:' : '') + type];
+      if (p) { start = p.start || ''; end = p.end || ''; }
+    }
+    rows.push({date: e.date, kind, type, label, title: title.slice(0, 100), start, end, sure: e.sure !== false, off: false});
+  });
+  rows.sort((a, b) => a.date.localeCompare(b.date));
+  rows.forEach(r => { r.conflict = r.kind === 'shift' ? findShiftConflict(r.date, pid) : null; });
+  return rows;
+}
+function readImportForm(sh){
+  const n = document.getElementById('im-name'), m = document.getElementById('im-month');
+  if (n) sh.name = n.value.trim().slice(0, 40);
+  if (m && /^\d{4}-\d{2}$/.test(m.value)) sh.month = m.value;
+}
+function replaceSheet(sh){
+  const w = document.querySelector('#sheets [data-sid="' + sh.sid + '"] .sheet-inner');
+  if (!w) return;
+  w.innerHTML = SHEETS[sh.type](sh);
+  const b = w.querySelector('.sh-body'); if (b) b.scrollTop = 0;
+}
+async function importErrText(error, data){
+  let code = data && data.error;
+  if (!code && error && error.context && typeof error.context.json === 'function') { try { const j = await error.context.json(); code = j && j.error; } catch (e) {} }
+  const M = {
+    not_configured: '読み取り機能の準備がまだです（AI の API キーが設定されていません）',
+    limit: '今日の読み取り回数の上限（30回）に達しました。明日またお試しください',
+    unauthorized: 'ログインの有効期限が切れました。もう一度ログインしてください',
+    no_credit: 'AI の利用残高が足りません。Anthropic のコンソールで残高を追加してください',
+    bad_key: 'AI の API キーが正しくないようです。設定を確認してください',
+    busy: 'AI が混み合っています。少し待ってからもう一度お試しください',
+    bad_image: '写真を読み込めませんでした。別の写真でお試しください',
+    refused: 'この写真は読み取れませんでした。別の写真でお試しください',
+    too_long: '予定が多すぎて読み切れませんでした。写真を半分ずつに分けてお試しください'
+  };
+  if (code && M[code]) return M[code];
+  if (isNetErr(error) || (error && /FetchError|Failed to send/i.test(String(error.name || error.message)))) return '通信できませんでした。電波のよいところでもう一度お試しください';
+  return '読み取れませんでした。もう一度お試しください';
+}
+
 /* ---------- toast ---------- */
 let toastT = null;
 function toast(msg, opt){
@@ -1668,6 +1776,67 @@ const A = {
     toast('予定を削除しました', {undo: () => insertRow('events', before)});
   },
 
+  openImport: () => {
+    const m = (S.cal.sel || todayS()).slice(0, 7);
+    openSheet('import', {static: true, tall: true, step: 'form', who: 'me', name: (S.settings.rosterNames || {}).me || '', month: m, space: 'shared'});
+  },
+  imWho: el => { const sh = topSheet(); readImportForm(sh); const v = el.dataset.v; if (sh.who === v) return; sh.who = v; sh.name = (S.settings.rosterNames || {})[v] || ''; refreshSheet(sh); },
+  imSpace: el => { const sh = topSheet(); readImportForm(sh); sh.space = el.dataset.v; refreshSheet(sh); },
+  imBack: () => { const sh = topSheet(); sh.step = 'form'; replaceSheet(sh); },
+  imRun: async () => {
+    const sh = topSheet(); readImportForm(sh);
+    if (!sh.image || sh.step === 'busy') return;
+    const rn = Object.assign({}, S.settings.rosterNames || {});
+    if ((rn[sh.who] || '') !== (sh.name || '')) { rn[sh.who] = sh.name || ''; saveSettings({rosterNames: rn}); }
+    sh.step = 'busy'; sh.err = ''; replaceSheet(sh);
+    let data = null, error = null;
+    try { const r = await sb.functions.invoke('read-shifts', {body: {image: sh.image, media_type: 'image/jpeg', month: sh.month, name: sh.name}}); data = r.data; error = r.error; }
+    catch (e) { error = e; }
+    if (!S.sheets.includes(sh)) return;
+    if (error || !data || !data.result) { sh.step = 'form'; sh.err = await importErrText(error, data); replaceSheet(sh); return; }
+    sh.found = data.result.person_found !== false;
+    sh.note = String(data.result.note || '').slice(0, 300);
+    sh.rows = buildImportRows(sh, data.result);
+    sh.step = 'review'; replaceSheet(sh);
+  },
+  imAdd: () => {
+    const sh = topSheet(); if (!sh || !sh.rows) return;
+    const pid = sh.who === 'partner' ? partnerId() : S.uid;
+    const spaceId = S.sharedId && (sh.who === 'partner' || sh.space !== 'personal') ? S.sharedId : S.personalId;
+    const person = spaceId === S.sharedId ? pid : S.uid;
+    const okT = t => /^([01]\d|2[0-3]):[0-5]\d$/.test(t || '') ? t : '';
+    const add = [], replaced = [];
+    sh.rows.forEach((r, i) => {
+      const inc = document.getElementById('im-inc-' + i);
+      if (!inc || !inc.checked) return;
+      const date = document.getElementById('im-date-' + i).value;
+      if (!validDate(date)) return;
+      const tv = document.getElementById('im-type-' + i).value.split(':');
+      const kind = tv[0] === 'plan' ? 'plan' : 'shift', type = tv[1];
+      let title = (document.getElementById('im-title-' + i).value || '').trim().slice(0, 100);
+      if (kind === 'plan' && type === 'custom' && !title) title = r.label || '予定';
+      if (kind === 'shift' && type === 'other' && !title) title = r.label || '';
+      if (kind === 'shift') {
+        const c = findShiftConflict(date, person);
+        const sel = document.getElementById('im-dup-' + i);
+        const act = c ? (sel && date === r.date ? sel.value : 'keep') : 'none';
+        if (act === 'skip') return;
+        if (act === 'replace') c.ids.forEach(id => { const ev = S.events.get(id); if (ev && !replaced.includes(ev)) replaced.push(ev); });
+      }
+      add.push({id: uuid(), space_id: spaceId, date, kind, type, title,
+        start_time: okT(document.getElementById('im-start-' + i).value), end_time: okT(document.getElementById('im-end-' + i).value), memo: '', person_id: person});
+    });
+    if (!add.length) { toast('追加するものはありませんでした'); return; }
+    closeSheet(sh.sid);
+    const before = replaced.map(strip);
+    if (replaced.length) deleteRows('events', replaced.map(e => e.id));
+    insertRows('events', add);
+    S.cal.sel = add.map(a => a.date).sort()[0];
+    S.cal.view = 'month'; lsSet('calView', 'month');
+    if (S.tab !== 'cal') { S.tab = 'cal'; lsSet('tab', 'cal'); }
+    render();
+    toast(add.length + '件をカレンダーに追加しました', {undo: () => { deleteRows('events', add.map(a => a.id)); if (before.length) insertRows('events', before); }});
+  },
   openSearch: () => { openSheet('search', {tall: true, q: ''}); const n = document.getElementById('srch'); if (n) n.focus({preventScroll: true}); },
   jumpDate: el => { S.cal.sel = el.dataset.date; S.cal.view = 'month'; lsSet('calView', 'month'); S.tab = 'cal'; lsSet('tab', 'cal'); S.adder = null; closeAllSheets(); render(); setTimeout(() => { const d = document.getElementById('day-in'); if (d) d.scrollIntoView({block: 'start'}); }, 60); },
 
@@ -1949,6 +2118,28 @@ const C = {
     sh.photoBusy = false;
     el.value = '';
     if (S.sheets.includes(sh)) { collectRF(sh); refreshSheet(sh); }
+  },
+  imFile: async el => {
+    const f = el.files && el.files[0];
+    el.value = '';
+    if (!f) return;
+    const sh = topSheet(); readImportForm(sh);
+    sh.prepping = true; sh.err = ''; refreshSheet(sh);
+    const url = URL.createObjectURL(f);
+    try {
+      const img = await loadImg(url);
+      sh.image = drawScaled(img, 2200, 0.85).split(',')[1];
+      sh.preview = drawScaled(img, 240, 0.7);
+    } catch (e) { sh.err = '写真を読み込めませんでした。別の写真を選んでください'; }
+    finally { URL.revokeObjectURL(url); }
+    sh.prepping = false;
+    if (S.sheets.includes(sh)) { readImportForm(sh); refreshSheet(sh); }
+  },
+  imInc: el => {
+    const sh = topSheet(); const i = +el.dataset.i;
+    if (sh && sh.rows && sh.rows[i]) sh.rows[i].off = !el.checked;
+    const row = document.getElementById('im-row-' + i); if (row) row.classList.toggle('off', !el.checked);
+    const btn = document.getElementById('im-add'); if (btn && sh.rows) btn.textContent = sh.rows.filter(r => !r.off).length + '件をカレンダーに追加';
   },
   importFile: async el => {
     const f = el.files && el.files[0];
