@@ -442,17 +442,22 @@ select.in{padding-right:30px;background-image:linear-gradient(45deg,transparent 
 
 /* ---------- こむぎ（うさぎ） ---------- */
 .bunny{display:flex;align-items:flex-end;gap:4px;margin:2px 0 12px}
-.bun-btn{flex:none;width:78px;height:78px;padding:0;border-radius:50%;display:grid;place-items:center;-webkit-tap-highlight-color:transparent}
-.bun-svg{width:78px;height:78px;display:block;overflow:visible}
+.bun-btn{flex:none;width:76px;height:96px;padding:0;border-radius:50%;display:grid;place-items:center;-webkit-tap-highlight-color:transparent}
+.bun-svg{width:76px;height:96px;display:block;overflow:visible}
 .bun-fur{fill:var(--bun-fur);stroke:var(--bun-line);stroke-width:2;stroke-linejoin:round}
 .bun-inear{fill:var(--bun-inear)}
 .bun-eye{fill:var(--bun-eye)}
 .bun-shine{fill:#fff}
 .bun-cheek{fill:var(--bun-cheek);opacity:.75}
+.bun-belly{fill:#FDEEF1}
+.bun-wood{stroke:#B98C66;stroke-width:2.6;stroke-linecap:round;fill:none}
+.bun-woodhead{fill:#E8C9A4;stroke:#B98C66;stroke-width:1.6}
+.bun-spoon{transform-box:fill-box;transform-origin:0% 100%}
+.bun-btn.hop .bun-spoon{animation:bun-ear .55s ease}
 .bun-nose{fill:var(--bun-nose)}
 .bun-mouth{fill:none;stroke:var(--bun-line);stroke-width:1.5;stroke-linecap:round}
-.bun-ear{transform-origin:51px 38px}
-.bun-eyes{transform-origin:40px 50px;animation:bun-blink 5.5s infinite}
+.bun-ear{transform-box:fill-box;transform-origin:50% 100%}
+.bun-eyes{transform-box:fill-box;transform-origin:50% 50%;animation:bun-blink 5.5s infinite}
 .bun-btn.hop .bun-svg{animation:bun-hop .55s ease}
 .bun-btn.hop .bun-ear{animation:bun-ear .55s ease}
 @keyframes bun-hop{0%{transform:translateY(0)}30%{transform:translateY(-9px) rotate(-5deg)}60%{transform:translateY(0) rotate(0)}78%{transform:translateY(-3px)}100%{transform:none}}

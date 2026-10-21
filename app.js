@@ -631,7 +631,15 @@ function inviteCardHTML(){
     + '<button class="btn sm primary" data-act="' + (hasShared() ? 'openInvite' : 'goShare') + '">招待する</button><button class="x" data-act="hideInvite" aria-label="この案内を閉じる">' + IC.x + '</button></div>';
 }
 /* ---------- こむぎ（うさぎのお知らせ係） ---------- */
-const BUNNY_SVG = '<svg class="bun-svg" viewBox="0 0 80 80" aria-hidden="true">'
+const BUNNY_SVG = '<svg class="bun-svg" viewBox="0 0 80 100" aria-hidden="true">'
+  + '<circle class="bun-fur" cx="56.5" cy="84" r="4.6"/>'
+  + '<ellipse class="bun-fur" cx="32" cy="92.5" rx="6.6" ry="3.9"/><ellipse class="bun-fur" cx="48" cy="92.5" rx="6.6" ry="3.9"/>'
+  + '<ellipse class="bun-fur" cx="40" cy="77" rx="16.5" ry="15.5"/>'
+  + '<ellipse class="bun-belly" cx="40" cy="80" rx="9.5" ry="8.5"/>'
+  + '<ellipse class="bun-fur" cx="24.6" cy="75" rx="4.4" ry="7" transform="rotate(24 24.6 75)"/>'
+  + '<g class="bun-spoon"><path class="bun-wood" d="M58.5 74.5 L 66.5 54"/><ellipse class="bun-woodhead" cx="67.6" cy="50.4" rx="3.6" ry="5.4" transform="rotate(21 67.6 50.4)"/></g>'
+  + '<ellipse class="bun-fur" cx="56.4" cy="72.4" rx="4.4" ry="6.6" transform="rotate(-34 56.4 72.4)"/>'
+  + '<g transform="translate(4 -2.5) scale(0.9)">'
   + '<path class="bun-fur" d="M31 34 C 22.5 26.5, 10.5 26, 7 33.5 C 5.1 38, 9.5 41.4, 15.5 39.6 C 21.5 37.8, 27 37.2, 32.5 38.4 Z"/>'
   + '<path class="bun-inear" d="M29 34.6 C 22 30.6, 14 30.4, 10.9 34.2 C 9.9 36.4, 12.5 37.6, 16.5 36.6 C 20.5 35.6, 24.9 35.2, 28.9 36 Z"/>'
   + '<g class="bun-ear"><path class="bun-fur" d="M46 38 C 43.5 20, 48.5 4.5, 55.5 5 C 62.5 5.6, 62 21, 55.5 39 Z"/>'
@@ -642,7 +650,7 @@ const BUNNY_SVG = '<svg class="bun-svg" viewBox="0 0 80 80" aria-hidden="true">'
   + '<ellipse class="bun-cheek" cx="24.6" cy="57" rx="4.4" ry="2.7"/><ellipse class="bun-cheek" cx="55.4" cy="57" rx="4.4" ry="2.7"/>'
   + '<path class="bun-nose" d="M37.9 54.8 Q 40 53.4 42.1 54.8 Q 40 57 37.9 54.8 Z"/>'
   + '<path class="bun-mouth" d="M40 56.4 V 57.8 M40 57.8 Q 38.1 60 36.4 58.4 M40 57.8 Q 41.9 60 43.6 58.4"/>'
-  + '</svg>';
+  + '</g></svg>';
 function bunnyMessages(){
   const t = todayS(), hour = new Date().getHours();
   const focus = hour < 12 ? t : addD(t, 1);
