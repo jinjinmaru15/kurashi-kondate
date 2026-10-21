@@ -6,7 +6,7 @@
 'use strict';
 
 const CFG = window.KONDATE_CONFIG || {};
-const APP_VERSION = '2.1';
+const APP_VERSION = '2.1.1';
 
 /* ---------- utils ---------- */
 const $ = (s, r) => (r || document).querySelector(s);
@@ -486,8 +486,11 @@ function endSession(){
   render();
 }
 function handlePendingJoin(){
-  const code = lsGet('pendingJoin');
-  if (!code || S.status !== 'ready') return;
+  if (S.status !== 'ready') return;
+  let code = lsGet('pendingJoin');
+  const metaCode = S.user && S.user.user_metadata && S.user.user_metadata.invite_code;
+  if (!code && metaCode && !lsGet('joinAsked.' + metaCode)) { code = String(metaCode); lsSet('joinAsked.' + code, '1'); }
+  if (!code) return;
   if (S.sharedId) { lsSet('pendingJoin', null); return; }
   openSheet('join', {static: true, code});
 }
@@ -1475,16 +1478,24 @@ function rpcErrText(e){
   if (/already_in_shared_space/.test(m)) return 'すでに別のふたりのスペースに参加しています';
   if (/last_member/.test(m)) return '最後のメンバーは抜けられません';
   if (/not_owner/.test(m)) return 'メンバーを外せるのはスペースを作った人だけです';
-  if (/Could not find the function|PGRST202|does not exist/i.test(m)) return 'この機能はまだ準備中です。Supabase で schema.sql の「オプション」を実行すると使えます';
+  if (/Could not find the function|PGRST202/i.test(m) || (/does not exist/i.test(m) && /function/i.test(m))) return 'この機能はまだ準備中です。Supabase で schema.sql の「オプション」を実行すると使えます';
+  if (/no_session|permission denied|JWT|not_signed_in/i.test(m) || (e && e.code === '42501')) return 'ログインの状態が切れていました。設定からいったんログアウトして、ログインし直してからもう一度お試しください';
   if (isNetErr(e)) return '通信できませんでした。電波のよいところでもう一度お試しください';
   return 'うまくいきませんでした。もう一度お試しください';
+}
+async function authedRpc(name, params){
+  let session = null;
+  try { const r = await sb.auth.getSession(); session = r && r.data && r.data.session; } catch (e) {}
+  if (!session) { try { const r = await sb.auth.refreshSession(); session = r && r.data && r.data.session; } catch (e) {} }
+  if (!session) return {data: null, error: {code: 'no_session', message: 'no_session'}};
+  return sb.rpc(name, params);
 }
 async function copyText(text){
   try { await navigator.clipboard.writeText(text); return true; } catch (e) { return false; }
 }
 async function startInvite(sh){
   sh.busy = true; sh.err = ''; refreshSheet(sh);
-  const {data, error} = await sb.rpc('create_invite', {p_space: S.sharedId});
+  const {data, error} = await authedRpc('create_invite', {p_space: S.sharedId});
   sh.busy = false;
   if (error) sh.err = rpcErrText(error); else sh.code = data;
   if (S.sheets.includes(sh)) refreshSheet(sh);
@@ -1608,7 +1619,9 @@ const A = {
         if (error) S.authErr = authErrorText(error);
       } else if (S.authMode === 'signup') {
         const name = ($('#au-name') && $('#au-name').value || '').trim();
-        const {data, error} = await sb.auth.signUp({email, password: pass, options: {data: {display_name: name}, emailRedirectTo: appUrl()}});
+        const meta = {display_name: name};
+        const pj = lsGet('pendingJoin'); if (pj) meta.invite_code = pj;
+        const {data, error} = await sb.auth.signUp({email, password: pass, options: {data: meta, emailRedirectTo: appUrl()}});
         if (error) S.authErr = authErrorText(error);
         else if (!data.session) { S.authMode = 'login'; S.authMsg = email + ' に確認メールを送りました。メールのリンクを開いてから、ここでログインしてください。'; }
       } else {
@@ -2012,7 +2025,7 @@ const A = {
   hideInvite: () => { S.hideInviteCard = true; lsSet('hideInvite', '1'); render(); },
   createShared: async el => {
     el.disabled = true;
-    const {error} = await sb.rpc('create_shared_space', {p_name: 'ふたりの献立帖'});
+    const {error} = await authedRpc('create_shared_space', {p_name: 'ふたりの献立帖'});
     el.disabled = false;
     if (error) { toast(rpcErrText(error), {err: true}); return; }
     await afterJoinOrCreate();
@@ -2039,7 +2052,7 @@ const A = {
     const code = ($('#join-code').value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (code.length < 10) { sh.err = '10文字のコードを入力してください'; refreshSheet(sh); return; }
     sh.busy = true; sh.err = ''; refreshSheet(sh);
-    const {error} = await sb.rpc('accept_invite', {p_code: code});
+    const {error} = await authedRpc('accept_invite', {p_code: code});
     sh.busy = false;
     if (error) { sh.err = rpcErrText(error); refreshSheet(sh); return; }
     lsSet('pendingJoin', null);
@@ -2050,12 +2063,12 @@ const A = {
     toast('ふたりのスペースに参加しました 🎉');
   },
   leaveSpace: () => openConfirm('ふたりのスペースから抜ける', '抜けると、ふたりの予定・献立・買い物リスト・レシピが見られなくなります。データはスペースに残り、相手はそのまま使えます。', [
-    {label: '抜ける', cls: 'danger', fn: async () => { const {error} = await sb.rpc('leave_space', {p_space: S.sharedId}); if (error) { toast(rpcErrText(error), {err: true}); return; } saveSettings({curSpace: S.personalId}); await refreshAll(); toast('ふたりのスペースから抜けました'); }},
+    {label: '抜ける', cls: 'danger', fn: async () => { const {error} = await authedRpc('leave_space', {p_space: S.sharedId}); if (error) { toast(rpcErrText(error), {err: true}); return; } saveSettings({curSpace: S.personalId}); await refreshAll(); toast('ふたりのスペースから抜けました'); }},
     {label: 'やめる', cls: 'ghost'}]),
   removeMember: el => {
     const uid = el.dataset.uid;
     openConfirm('メンバーを外す', nameOf(uid) + 'をふたりのスペースから外します。外された人は、ふたりのデータが見られなくなります。', [
-      {label: '外す', cls: 'danger', fn: async () => { const {error} = await sb.rpc('remove_member', {p_space: S.sharedId, p_user: uid}); if (error) { toast(rpcErrText(error), {err: true}); return; } await refreshAll(); toast('外しました'); }},
+      {label: '外す', cls: 'danger', fn: async () => { const {error} = await authedRpc('remove_member', {p_space: S.sharedId, p_user: uid}); if (error) { toast(rpcErrText(error), {err: true}); return; } await refreshAll(); toast('外しました'); }},
       {label: 'やめる', cls: 'ghost'}]);
   },
   renameSpace: () => { const sp = S.spaces.get(S.sharedId); if (sp) openSheet('spaceName', {static: true, name: sp.name}); },
