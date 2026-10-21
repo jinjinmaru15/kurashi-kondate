@@ -19,6 +19,7 @@
   --font-body:"Zen Maru Gothic","Hiragino Maru Gothic ProN","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
   --font-hand:"Klee One","Zen Maru Gothic","Hiragino Mincho ProN",serif;
   --r-lg:20px; --r-md:16px; --r-sm:12px;
+  --bun-fur:#FFF8EE; --bun-line:#8E6E60; --bun-inear:#F8C9CF; --bun-cheek:#F5A9B4; --bun-scarf:#E9909E; --bun-eye:#4A3530;
 }
 @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
   --paper:#1E1918; --paper-2:#27201F; --card:#2B2423; --dot:#2C2524;
@@ -438,3 +439,35 @@ select.in{padding-right:30px;background-image:linear-gradient(45deg,transparent 
 .im-t{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr);gap:6px}
 .grow-row.unsure{background:var(--pink-2);border-radius:12px;padding-inline:6px}
 .unsure-tag{display:inline-block;margin-left:6px;font-size:11px;font-weight:700;background:var(--sh-day-bg);color:var(--sh-day-fg);border-radius:999px;padding:0 7px}
+
+/* ---------- こむぎ（うさぎ） ---------- */
+.bunny{display:flex;align-items:flex-end;gap:4px;margin:2px 0 12px}
+.bun-btn{flex:none;width:78px;height:78px;padding:0;border-radius:50%;display:grid;place-items:center;-webkit-tap-highlight-color:transparent}
+.bun-svg{width:78px;height:78px;display:block;overflow:visible}
+.bun-fur{fill:var(--bun-fur);stroke:var(--bun-line);stroke-width:2;stroke-linejoin:round}
+.bun-inear{fill:var(--bun-inear)}
+.bun-scarf{fill:var(--bun-scarf);stroke:var(--bun-line);stroke-width:1.6;stroke-linejoin:round}
+.bun-dot{fill:#FFF8EE}
+.bun-eye{fill:var(--bun-eye)}
+.bun-shine{fill:#fff}
+.bun-cheek{fill:var(--bun-cheek);opacity:.75}
+.bun-nose{fill:var(--bun-scarf)}
+.bun-mouth{fill:none;stroke:var(--bun-line);stroke-width:1.5;stroke-linecap:round}
+.bun-ear{transform-origin:52px 36px}
+.bun-eyes{transform-origin:40px 50px;animation:bun-blink 5.5s infinite}
+.bun-btn.hop .bun-svg{animation:bun-hop .55s ease}
+.bun-btn.hop .bun-ear{animation:bun-ear .55s ease}
+@keyframes bun-hop{0%{transform:translateY(0)}30%{transform:translateY(-9px) rotate(-5deg)}60%{transform:translateY(0) rotate(0)}78%{transform:translateY(-3px)}100%{transform:none}}
+@keyframes bun-ear{0%,100%{transform:rotate(0)}35%{transform:rotate(12deg)}65%{transform:rotate(-6deg)}}
+@keyframes bun-blink{0%,94%,100%{transform:scaleY(1)}96.5%{transform:scaleY(.1)}}
+.bun-bubble{position:relative;flex:1;min-width:0;display:grid;gap:4px;text-align:left;background:var(--card);border:1.5px solid var(--line-2);border-radius:18px;padding:10px 14px 10px 14px;box-shadow:var(--shadow);margin-bottom:8px}
+.bun-bubble::before{content:"";position:absolute;left:-8px;bottom:14px;width:13px;height:13px;background:var(--card);border-left:1.5px solid var(--line-2);border-bottom:1.5px solid var(--line-2);transform:rotate(45deg);border-bottom-left-radius:4px}
+.bun-head{font-weight:700;font-size:14px;line-height:1.5;overflow-wrap:anywhere}
+.bun-lines{display:flex;flex-direction:column;gap:3px;font-size:13px;color:var(--ink-2);min-width:0}
+.bun-ev{display:flex;min-width:0}
+.bun-ev .evp{max-width:100%}
+.bun-meal{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bun-dots{display:flex;gap:4px;justify-content:flex-end;margin-top:2px}
+.bun-dots i{width:5px;height:5px;border-radius:50%;background:var(--line-2);display:block}
+.bun-dots i.on{background:var(--rose)}
+@media (prefers-reduced-motion: reduce){.bun-eyes{animation:none}}

@@ -6,7 +6,7 @@
 'use strict';
 
 const CFG = window.KONDATE_CONFIG || {};
-const APP_VERSION = '2.1.1';
+const APP_VERSION = '2.2';
 
 /* ---------- utils ---------- */
 const $ = (s, r) => (r || document).querySelector(s);
@@ -149,7 +149,7 @@ const S = {
   profiles: new Map(), spaces: new Map(), members: [],
   personalId: null, sharedId: null, cur: null,
   recipes: new Map(), meals: new Map(), events: new Map(), shop: new Map(),
-  settings: {weekStart: 0, monthMeals: 'all', shiftTimes: {}, curSpace: null, rosterNames: {}},
+  settings: {weekStart: 0, monthMeals: 'all', shiftTimes: {}, curSpace: null, rosterNames: {}, bunny: true},
   loaded: false, offline: false, ver: 0,
   tab: ['cal','recipes','shop','prefs'].includes(lsGet('tab')) ? lsGet('tab') : 'cal',
   cal: {view: lsGet('calView') === 'week' ? 'week' : 'month', sel: todayS()},
@@ -157,7 +157,8 @@ const S = {
   rq: {text:'', filter:'all', cat:'all'},
   shopDup: null, shopCatTouched: false,
   sheets: [], photoCache: new Map(), undo: null, scroll: {},
-  hideInviteCard: lsGet('hideInvite') === '1'
+  hideInviteCard: lsGet('hideInvite') === '1',
+  bunIdx: 0
 };
 const markDirty = () => { S.ver++; };
 
@@ -307,7 +308,8 @@ function applySettings(d){
     monthMeals: d.monthMeals === 'main' ? 'main' : 'all',
     shiftTimes: (d.shiftTimes && typeof d.shiftTimes === 'object') ? d.shiftTimes : {},
     curSpace: typeof d.curSpace === 'string' ? d.curSpace : null,
-    rosterNames: (d.rosterNames && typeof d.rosterNames === 'object') ? d.rosterNames : {}
+    rosterNames: (d.rosterNames && typeof d.rosterNames === 'object') ? d.rosterNames : {},
+    bunny: d.bunny !== false
   };
 }
 function pickSpaces(){
@@ -388,7 +390,7 @@ function resetData(){
   S.profiles = new Map(); S.spaces = new Map(); S.members = [];
   S.recipes = new Map(); S.meals = new Map(); S.events = new Map(); S.shop = new Map();
   S.personalId = S.sharedId = S.cur = null; S.loaded = false; S.photoCache = new Map();
-  S.settings = {weekStart: 0, monthMeals: 'all', shiftTimes: {}, curSpace: null, rosterNames: {}};
+  S.settings = {weekStart: 0, monthMeals: 'all', shiftTimes: {}, curSpace: null, rosterNames: {}, bunny: true};
   markDirty();
 }
 
@@ -628,6 +630,60 @@ function inviteCardHTML(){
   return '<div class="invite-card"><span class="em">💌</span><p>' + (hasShared() ? 'ふたりのスペースができました。相手に招待コードを送ると、予定や献立を一緒に使えます。' : '相手を招待すると、予定・献立・買い物リストをふたりで共有できます。') + '</p>'
     + '<button class="btn sm primary" data-act="' + (hasShared() ? 'openInvite' : 'goShare') + '">招待する</button><button class="x" data-act="hideInvite" aria-label="この案内を閉じる">' + IC.x + '</button></div>';
 }
+/* ---------- こむぎ（うさぎのお知らせ係） ---------- */
+const BUNNY_SVG = '<svg class="bun-svg" viewBox="0 0 80 80" aria-hidden="true">'
+  + '<path class="bun-fur" d="M30.5 33 C 22 25.5, 10 25, 6.5 32.5 C 4.6 37, 9 40.4, 15 38.6 C 21 36.8, 26.5 36.2, 32 37.4 Z"/>'
+  + '<path class="bun-inear" d="M28.5 33.6 C 21.5 29.6, 13.5 29.4, 10.4 33.2 C 9.4 35.4, 12 36.6, 16 35.6 C 20 34.6, 24.4 34.2, 28.4 35 Z"/>'
+  + '<ellipse class="bun-fur" cx="40" cy="49" rx="24.5" ry="21"/>'
+  + '<path class="bun-scarf" d="M17.2 43.5 C 18 29.5, 62 29.5, 62.8 43.5 C 55 38.6, 25 38.6, 17.2 43.5 Z"/>'
+  + '<circle class="bun-dot" cx="29" cy="36.6" r="1.2"/><circle class="bun-dot" cx="37" cy="34.2" r="1.2"/><circle class="bun-dot" cx="45.5" cy="34.4" r="1.2"/><circle class="bun-dot" cx="53" cy="36.8" r="1.2"/>'
+  + '<path class="bun-scarf" d="M61.5 39.5 L 70 35.5 L 68.6 44.2 Z"/><path class="bun-scarf" d="M61.8 40.6 L 70.6 45.6 L 63.6 47.6 Z"/>'
+  + '<g class="bun-ear"><path class="bun-fur" d="M47.5 36 C 45 19, 49.5 4.5, 56 5 C 62.5 5.6, 62 20, 56.5 37 Z"/>'
+  + '<path class="bun-inear" d="M51 31.5 C 50.2 19.5, 52.6 10.2, 55.8 10.4 C 58.8 10.8, 58.2 20, 55 32 Z"/></g>'
+  + '<g class="bun-eyes"><ellipse class="bun-eye" cx="31" cy="50" rx="2.7" ry="3.3"/><ellipse class="bun-eye" cx="49" cy="50" rx="2.7" ry="3.3"/>'
+  + '<circle class="bun-shine" cx="31.9" cy="48.8" r="0.95"/><circle class="bun-shine" cx="49.9" cy="48.8" r="0.95"/></g>'
+  + '<ellipse class="bun-cheek" cx="24.6" cy="56.6" rx="4.4" ry="2.7"/><ellipse class="bun-cheek" cx="55.4" cy="56.6" rx="4.4" ry="2.7"/>'
+  + '<path class="bun-nose" d="M37.9 54.4 Q 40 53 42.1 54.4 Q 40 56.6 37.9 54.4 Z"/>'
+  + '<path class="bun-mouth" d="M40 56 V 57.4 M40 57.4 Q 38.1 59.6 36.4 58 M40 57.4 Q 41.9 59.6 43.6 58"/>'
+  + '</svg>';
+function bunnyMessages(){
+  const t = todayS(), hour = new Date().getHours();
+  const focus = hour < 12 ? t : addD(t, 1);
+  const label = focus === t ? '今日' : '明日';
+  const greet = hour >= 4 && hour < 11 ? 'おはよう！' : hour >= 17 && hour < 23 ? 'おつかれさま！' : hour >= 23 || hour < 4 ? '夜ふかし注意だよ。' : '';
+  const day = getDay(focus);
+  const evs = sortEvents(day.events);
+  const dishes = dayDishes(day);
+  const msgs = [];
+  if (evs.length || dishes.length) {
+    const lines = evs.slice(0, 4).map(e => '<span class="bun-ev">' + evPillHTML(e, false) + '</span>');
+    if (evs.length > 4) lines.push('<span class="muted">ほか' + (evs.length - 4) + '件</span>');
+    if (dishes.length) lines.push('<span class="bun-meal">🍽 ' + esc(dishes.map(x => x.name).slice(0, 4).join('・')) + (dishes.length > 4 ? ' ほか' : '') + '</span>');
+    msgs.push({head: greet + label + ' ' + jpS(focus) + ' の予定だよ！', lines, act: 'date', v: focus});
+  } else {
+    msgs.push({head: greet + label + ' ' + jpS(focus) + ' は、まだ予定がないよ', lines: ['<span>のんびりできそう？献立だけでも決めておく？</span>'], act: 'date', v: focus});
+  }
+  if (!dishes.length) msgs.push({head: label + 'の献立、まだ決まってないよ〜', lines: ['<span>レシピから選ぶと、材料を買い物リストにまとめられるよ</span>'], act: 'date', v: focus});
+  const todo = curShop().filter(i => !i.checked);
+  if (todo.length) msgs.push({head: '買い物リストに ' + todo.length + '件 あるよ 🛒', lines: ['<span>' + esc(todo.slice(0, 3).map(i => i.name).join('・')) + (todo.length > 3 ? ' ほか' : '') + '</span>'], act: 'tab', v: 'shop'});
+  const want = curRecipes().filter(r => !r.made);
+  if (want.length) msgs.push({head: '作りたいレシピが ' + want.length + '品 たまってるよ', lines: ['<span>' + esc(want.slice(0, 2).map(r => r.name).join('・')) + ' とか、どうかな？</span>'], act: 'want'});
+  const nx = addD(focus, 1), nd = getDay(nx);
+  const nshift = sortEvents(nd.events).filter(e => e.kind === 'shift');
+  if (nshift.length) msgs.push({head: (focus === t ? '明日 ' : 'あさって ') + jpS(nx) + ' は…', lines: nshift.slice(0, 3).map(e => '<span class="bun-ev">' + evPillHTML(e, false) + '</span>'), act: 'date', v: nx});
+  return msgs;
+}
+function bunnyHTML(){
+  if (S.settings.bunny === false || !S.loaded) return '';
+  const msgs = bunnyMessages();
+  const i = S.bunIdx % msgs.length, m = msgs[i];
+  const dots = msgs.length > 1 ? '<span class="bun-dots" aria-hidden="true">' + msgs.map((_, k) => '<i' + (k === i ? ' class="on"' : '') + '></i>').join('') + '</span>' : '';
+  return '<div class="bunny">'
+    + '<button class="bun-btn" id="bun-btn" data-act="bunNext" aria-label="うさぎのこむぎ（タップで次のお知らせ）">' + BUNNY_SVG + '</button>'
+    + '<button class="bun-bubble" data-act="bunGo" data-k="' + m.act + '" data-v="' + esc(m.v || '') + '">'
+    + '<span class="bun-head">' + esc(m.head) + '</span>'
+    + '<span class="bun-lines">' + m.lines.join('') + '</span>' + dots + '</button></div>';
+}
 function calHTML(){
   const sel = S.cal.sel, d = pd(sel);
   const wk = weekStartOf(sel);
@@ -648,7 +704,7 @@ function calHTML(){
     + '<span class="sp"></span>' + spaceChipHTML() + '<button class="chip-btn" data-act="calToday">今日</button></div>'
     + '</header>';
   if (!S.loaded) return head + '<p class="muted small" style="padding:20px 4px">カレンダーを読み込んでいます…</p>';
-  return head + inviteCardHTML() + (S.cal.view === 'month' ? monthHTML(sel) + dayPanelHTML(sel, 'in') : weekHTML(sel));
+  return head + bunnyHTML() + inviteCardHTML() + (S.cal.view === 'month' ? monthHTML(sel) + dayPanelHTML(sel, 'in') : weekHTML(sel));
 }
 function monthHTML(sel){
   const ws = S.settings.weekStart || 0;
@@ -884,7 +940,8 @@ function prefsHTML(){
     + '<section class="card"><h2 class="card-h">👫 ふたりのスペース</h2>' + share + '</section>'
     + '<section class="card"><h2 class="card-h">表示</h2>'
     + '<div class="set-row"><span>週の始まり</span>' + seg('setWS', S.settings.weekStart, [[0,'日曜'],[1,'月曜']]) + '</div>'
-    + '<div class="set-row"><span>月表示に出す献立</span>' + seg('setMM', S.settings.monthMeals, [['all','すべて'],['main','主菜のみ']]) + '</div></section>'
+    + '<div class="set-row"><span>月表示に出す献立</span>' + seg('setMM', S.settings.monthMeals, [['all','すべて'],['main','主菜のみ']]) + '</div>'
+    + '<div class="set-row"><span>🐰 うさぎのこむぎ<br><small class="muted">カレンダーの上で予定を教えてくれます</small></span>' + seg('setBunny', S.settings.bunny === false ? 'off' : 'on', [['on','表示'],['off','かくす']]) + '</div></section>'
     + '<section class="card"><h2 class="card-h">勤務・予定の色</h2><div class="legend-grid">'
     + SHIFTS.map(s => '<span><i class="pill sh-' + s.k + '">' + s.label + '</i></span>').join('')
     + PLANS.map(p => '<span><i class="pd pl-' + p.k + '"></i>' + p.label + '</span>').join('')
@@ -1789,6 +1846,19 @@ const A = {
     toast('予定を削除しました', {undo: () => insertRow('events', before)});
   },
 
+  bunNext: el => {
+    S.bunIdx++;
+    render();
+    const b = document.getElementById('bun-btn');
+    if (b && !matchMedia('(prefers-reduced-motion: reduce)').matches) { b.classList.remove('hop'); void b.offsetWidth; b.classList.add('hop'); }
+  },
+  bunGo: el => {
+    const k = el.dataset.k, v = el.dataset.v;
+    if (k === 'date' && validDate(v)) { S.cal.sel = v; S.cal.view = 'month'; lsSet('calView', 'month'); S.adder = null; render(); setTimeout(() => { const d = document.getElementById('day-in'); if (d) d.scrollIntoView({behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start'}); }, 50); }
+    else if (k === 'tab') switchTab(v);
+    else if (k === 'want') { S.rq.filter = 'want'; S.rq.cat = 'all'; S.rq.text = ''; switchTab('recipes'); }
+  },
+  setBunny: el => saveSettings({bunny: el.dataset.v === 'on'}),
   openImport: () => {
     const m = (S.cal.sel || todayS()).slice(0, 7);
     openSheet('import', {static: true, tall: true, step: 'form', who: 'me', name: (S.settings.rosterNames || {}).me || '', month: m, space: 'shared'});
