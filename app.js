@@ -6,7 +6,7 @@
 'use strict';
 
 const CFG = window.KONDATE_CONFIG || {};
-const APP_VERSION = '2.5';
+const APP_VERSION = '2.5.1';
 
 /* ---------- utils ---------- */
 const $ = (s, r) => (r || document).querySelector(s);
@@ -2591,16 +2591,15 @@ function choresHTML(){
   if (!S.ch.wk) S.ch.wk = cur;
   const whoChips = [['all', 'すべて']].concat(choreMembers().map(id => [id, nameOf(id)]), [['both', 'ふたり'], ['', '未設定']]);
   const head = '<header class="top"><div class="page-head"><h1 class="page-title">家事</h1><span class="sp"></span>'
-    + '<div class="seg" role="group"><button data-act="chView" data-v="week" aria-pressed="' + (S.ch.view === 'week') + '">週間</button><button data-act="chView" data-v="list" aria-pressed="' + (S.ch.view === 'list') + '">一覧</button></div></div>'
+    + '<div class="seg" role="group"><button data-act="chView" data-v="week" aria-pressed="' + (S.ch.view === 'week') + '">週間</button><button data-act="chView" data-v="list" aria-pressed="' + (S.ch.view === 'list') + '">一覧</button></div><button class="btn sm primary" data-act="choreNew" aria-label="家事を追加">＋ 追加</button></div>'
     + '<div class="chips" role="group" aria-label="担当で絞り込み">' + whoChips.map(([v, l]) => '<button class="chip" data-act="chWho" data-v="' + esc(v) + '" aria-pressed="' + (S.ch.who === v) + '">' + esc(l) + '</button>').join('') + '</div></header>';
-  const fab = '<button class="fab" data-act="choreNew" aria-label="家事を追加">' + IC.plus + '</button>';
   if (!S.loaded) return head + '<p class="muted small" style="padding:20px 4px">読み込んでいます…</p>';
   if (!S.choresOk) return head + '<div class="empty"><div class="em">🧺</div><h2>家事のデータを読み込めませんでした</h2><p class="small">通信できるところで、アプリを開き直してください。</p></div>';
   const all = cidx().chores;
   if (!all.length && !S.choreSeeds.has(choreSpace())) return head + '<p class="muted small" style="padding:20px 4px">はじめての家事一覧を準備しています…</p>';
   let body = '';
   if (S.ch.view === 'list') {
-    if (!all.length) body = '<div class="empty"><div class="em">🧹</div><h2>家事はまだありません</h2><p class="small">右下の＋から追加できます。</p></div>';
+    if (!all.length) body = '<div class="empty"><div class="em">🧹</div><h2>家事はまだありません</h2><p class="small">上の「＋ 追加」から登録できます。</p></div>';
     for (const cat of CCATS) {
       const list = all.filter(c => c.category === cat.k && whoFilterOk(c));
       if (!list.length) continue;
@@ -2635,7 +2634,7 @@ function choresHTML(){
         + (S.ch.waitOpen ? '<p class="note" style="margin:6px 0 2px">まだ完了の記録がない家事と、不定期の家事です。やったら「完了」で記録すると、次からは目安の週に出てきます。</p>' + wait.map(c => choreRowHTML(c, {canDone: true})).join('') : '') + '</section>';
     }
   }
-  return head + body + '<div style="height:64px" aria-hidden="true"></div>' + fab;
+  return head + body + '<div style="height:16px" aria-hidden="true"></div>';
 }
 
 // 初めて家事画面を開いたときに、初期の30項目を1回だけ登録する（サーバー側で1スペース1回に限定）
