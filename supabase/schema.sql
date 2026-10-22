@@ -553,6 +553,125 @@ revoke execute on function public.bump_ai_usage(uuid, int) from public, anon, au
 grant execute on function public.bump_ai_usage(uuid, int) to service_role;
 
 -- =====================================================================
+-- 家事（v2.5）。今ある表には手を入れず、表を足すだけ。何度実行しても大丈夫
+--   chores      … 家事（固定表示／チェック管理、現在と理想の担当・頻度）
+--   chore_logs  … チェック管理の家事の完了記録（実施者・実施日）
+--   chore_seeds … 初期の家事30項目を登録済みのスペース（1スペース1回だけ）
+-- 担当・実施者は '' = 未設定、'both' = ふたり、それ以外はメンバーのユーザーID
+-- =====================================================================
+create table if not exists public.chores (
+  id          uuid primary key default gen_random_uuid(),
+  space_id    uuid not null references public.spaces(id) on delete cascade,
+  name        text not null check (char_length(name) between 1 and 100),
+  category    text not null default 'life' check (category in ('cooking','cleaning','laundry','supplies','seasonal','life')),
+  mode        text not null default 'fixed' check (mode in ('fixed','check')),
+  current_who text not null default '' check (current_who in ('', 'both') or current_who ~ '^[0-9a-f-]{36}$'),
+  ideal_who   text not null default '' check (ideal_who in ('', 'both') or ideal_who ~ '^[0-9a-f-]{36}$'),
+  freq        text not null default 'weekly' check (freq in ('daily','days','weekly','biweekly','monthly','months','yearly','twice_yearly','irregular')),
+  freq_n      int check (freq_n between 1 and 366),
+  freq_note   text not null default '' check (char_length(freq_note) <= 60),
+  actual_freq text not null default '' check (char_length(actual_freq) <= 60),
+  duration    text not null default '' check (char_length(duration) <= 40),
+  memo        text not null default '' check (char_length(memo) <= 1000),
+  position    int not null default 0,
+  created_by  uuid references auth.users(id) on delete set null,
+  updated_by  uuid references auth.users(id) on delete set null,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  unique (id, space_id)
+);
+create index if not exists chores_space_idx on public.chores(space_id);
+
+create table if not exists public.chore_logs (
+  id         uuid primary key default gen_random_uuid(),
+  space_id   uuid not null references public.spaces(id) on delete cascade,
+  chore_id   uuid not null,
+  done_on    date not null,
+  done_by    text not null default '' check (done_by in ('', 'both') or done_by ~ '^[0-9a-f-]{36}$'),
+  created_by uuid references auth.users(id) on delete set null,
+  updated_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  foreign key (chore_id, space_id) references public.chores(id, space_id) on delete cascade
+);
+create index if not exists chore_logs_chore_idx on public.chore_logs(chore_id, done_on);
+create index if not exists chore_logs_space_idx on public.chore_logs(space_id);
+
+create table if not exists public.chore_seeds (
+  space_id  uuid primary key references public.spaces(id) on delete cascade,
+  seeded_by uuid references auth.users(id) on delete set null,
+  seeded_at timestamptz not null default now()
+);
+
+do $$
+declare t text;
+begin
+  foreach t in array array['chores','chore_logs'] loop
+    execute format('drop trigger if exists audit on public.%I', t);
+    execute format('create trigger audit before insert or update on public.%I for each row execute function public.tg_audit()', t);
+  end loop;
+end $$;
+
+-- 初期の家事を登録する。そのスペースで1回目のときだけ登録し、2回目以降は何もしない（0を返す）
+-- 同時に呼ばれても、印の表の主キーで1回だけになる
+create or replace function public.seed_chores(p_space uuid, p_items jsonb) returns int
+language plpgsql security definer set search_path = '' as $$
+declare n int := 0;
+begin
+  if (select auth.uid()) is null then raise exception 'not_signed_in' using errcode = '42501'; end if;
+  if not public.is_member(p_space) then raise exception 'not_member' using errcode = '42501'; end if;
+  if jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) > 100 then raise exception 'bad_items' using errcode = '22023'; end if;
+  insert into public.chore_seeds(space_id, seeded_by) values (p_space, (select auth.uid())) on conflict (space_id) do nothing;
+  if not found then return 0; end if;
+  insert into public.chores(space_id, name, category, mode, current_who, ideal_who, freq, freq_n, freq_note, actual_freq, duration, memo, position)
+  select p_space, x->>'name', x->>'category', x->>'mode', coalesce(x->>'current_who', ''), coalesce(x->>'ideal_who', ''),
+         x->>'freq', nullif(x->>'freq_n', '')::int, coalesce(x->>'freq_note', ''), coalesce(x->>'actual_freq', ''),
+         coalesce(x->>'duration', ''), coalesce(x->>'memo', ''), coalesce(nullif(x->>'position', '')::int, 0)
+  from jsonb_array_elements(p_items) as x;
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
+revoke all on table public.chores, public.chore_logs, public.chore_seeds from anon, authenticated;
+grant select, insert, update, delete on public.chores, public.chore_logs to authenticated;
+grant select on public.chore_seeds to authenticated;
+revoke execute on function public.seed_chores(uuid, jsonb) from public, anon, authenticated;
+grant execute on function public.seed_chores(uuid, jsonb) to authenticated;
+
+alter table public.chores      enable row level security;
+alter table public.chore_logs  enable row level security;
+alter table public.chore_seeds enable row level security;
+
+do $$
+declare t text;
+begin
+  foreach t in array array['chores','chore_logs'] loop
+    execute format('drop policy if exists member_select on public.%I', t);
+    execute format('drop policy if exists member_insert on public.%I', t);
+    execute format('drop policy if exists member_update on public.%I', t);
+    execute format('drop policy if exists member_remove on public.%I', t);
+    execute format('create policy member_select on public.%I for select to authenticated using (public.is_member(space_id))', t);
+    execute format('create policy member_insert on public.%I for insert to authenticated with check (public.is_member(space_id))', t);
+    execute format('create policy member_update on public.%I for update to authenticated using (public.is_member(space_id)) with check (public.is_member(space_id))', t);
+    execute format('create policy member_remove on public.%I for delete to authenticated using (public.is_member(space_id))', t);
+  end loop;
+end $$;
+drop policy if exists member_select on public.chore_seeds;
+create policy member_select on public.chore_seeds for select to authenticated using (public.is_member(space_id));
+
+do $$
+declare t text;
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    foreach t in array array['chores','chore_logs'] loop
+      if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
+        execute format('alter publication supabase_realtime add table public.%I', t);
+      end if;
+    end loop;
+  end if;
+end $$;
+
+-- =====================================================================
 -- オプション：「ふたりのスペースから抜ける」「メンバーを外す」
 -- 使うときだけ、この下を SQL Editor で実行してください。
 -- =====================================================================

@@ -6,7 +6,7 @@
 'use strict';
 
 const CFG = window.KONDATE_CONFIG || {};
-const APP_VERSION = '2.4';
+const APP_VERSION = '2.5';
 
 /* ---------- utils ---------- */
 const $ = (s, r) => (r || document).querySelector(s);
@@ -143,6 +143,7 @@ const IC = {
   book: sv('<path d="M4 5.5c2.6-1.1 5.5-1 8 .9v13c-2.5-1.8-5.4-2-8-.9z"/><path d="M20 5.5c-2.6-1.1-5.5-1-8 .9v13c2.5-1.8 5.4-2 8-.9z"/>'),
   cart: sv('<path d="M4 9.5h16l-1.5 8.8a2 2 0 0 1-2 1.7H7.5a2 2 0 0 1-2-1.7z"/><path d="M8.5 9.5 11 4.5M15.5 9.5 13 4.5M9.5 13.5v3M14.5 13.5v3"/>'),
   gear: sv('<circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M4.2 7.5l2.1 1.2M17.7 15.3l2.1 1.2M4.2 16.5l2.1-1.2M17.7 8.7l2.1-1.2"/><circle cx="12" cy="12" r="7"/>'),
+  home: sv('<path d="M4 11.2 12 4.5l8 6.7V19a1 1 0 0 1-1 1h-4.5v-5.2h-5V20H5a1 1 0 0 1-1-1z"/>'),
   left: sv('<path d="M14.5 6 8.5 12l6 6"/>', 20),
   right: sv('<path d="M9.5 6l6 6-6 6"/>', 20),
   search: sv('<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/>', 20),
@@ -161,9 +162,11 @@ const S = {
   profiles: new Map(), spaces: new Map(), members: [],
   personalId: null, sharedId: null, cur: null,
   recipes: new Map(), meals: new Map(), events: new Map(), shop: new Map(),
+  chores: new Map(), clogs: new Map(), choreSeeds: new Set(), choresOk: true,
   settings: {weekStart: 0, monthMeals: 'all', shiftTimes: {}, curSpace: null, rosterNames: {}, bunny: true},
   loaded: false, offline: false, ver: 0,
-  tab: ['cal','recipes','shop','prefs'].includes(lsGet('tab')) ? lsGet('tab') : 'cal',
+  tab: ['cal','recipes','shop','chores','prefs'].includes(lsGet('tab')) ? lsGet('tab') : 'cal',
+  ch: {view: lsGet('chView') === 'list' ? 'list' : 'week', wk: null, who: 'all', waitOpen: false},
   cal: {view: lsGet('calView') === 'week' ? 'week' : 'month', sel: todayS()},
   adder: null, adderQ: '',
   rq: {text:'', filter:'all', cat:'all'},
@@ -176,7 +179,7 @@ const markDirty = () => { S.ver++; };
 
 /* ---------- supabase ---------- */
 let sb = null, channel = null, subscribedOnce = false;
-const TABLE_MAP = {recipes: 'recipes', meal_items: 'meals', events: 'events', shopping_items: 'shop', profiles: 'profiles'};
+const TABLE_MAP = {recipes: 'recipes', meal_items: 'meals', events: 'events', shopping_items: 'shop', profiles: 'profiles', chores: 'chores', chore_logs: 'clogs'};
 const SERVER_COLS = ['created_by','updated_by','created_at','updated_at','checked_by','checked_at'];
 const strip = row => { const o = Object.assign({}, row); SERVER_COLS.forEach(k => delete o[k]); return o; };
 const isNetErr = e => { const m = String((e && (e.message || e)) || ''); return /Failed to fetch|NetworkError|Load failed|network|fetch/i.test(m) && !(e && e.code); };
@@ -283,10 +286,12 @@ function refreshAll(){
   if (refreshing) return refreshing;
   refreshing = (async () => {
     try {
-      const [spaces, members, profiles, recipes, meals, events, shop, st] = await Promise.all([
+      const soft = p => p.then(v => v, () => null);
+      const [spaces, members, profiles, recipes, meals, events, shop, st, chores, clogs, seeds] = await Promise.all([
         fetchAll('spaces'), fetchAll('space_members', 'space_id,user_id,role,joined_at', 'space_id'), fetchAll('profiles'),
         fetchAll('recipes'), fetchAll('meal_items'), fetchAll('events'), fetchAll('shopping_items'),
-        sb.from('user_settings').select('data').eq('user_id', S.uid).maybeSingle()
+        sb.from('user_settings').select('data').eq('user_id', S.uid).maybeSingle(),
+        soft(fetchAll('chores')), soft(fetchAll('chore_logs')), soft(fetchAll('chore_seeds', 'space_id', 'space_id'))
       ]);
       S.spaces = new Map(spaces.map(s => [s.id, s]));
       S.members = members;
@@ -295,11 +300,14 @@ function refreshAll(){
       mergeMap('meals', meals);
       mergeMap('events', events);
       mergeMap('shop', shop);
+      if (chores && clogs && seeds) { mergeMap('chores', chores); mergeMap('clogs', clogs); S.choreSeeds = new Set(seeds.map(x => x.space_id)); S.choresOk = true; }
+      else S.choresOk = false;
       if (st && st.data && st.data.data && !chains.has('user_settings:' + S.uid)) applySettings(st.data.data);
       pickSpaces();
       S.loaded = true; S.offline = false; S.lastFetch = Date.now();
       if (S.status === 'loading') S.status = 'ready';
       markDirty(); saveSnapshotSoon();
+      if (S.tab === 'chores') setTimeout(ensureChoreSeed, 0);
     } catch (e) {
       S.offline = navigator.onLine === false || isNetErr(e);
       if (!S.loaded) {
@@ -338,7 +346,7 @@ function subscribe(){
   if (channel) { try { sb.removeChannel(channel); } catch (e) {} channel = null; }
   subscribedOnce = false;
   let ch = sb.channel('kondate-' + S.uid);
-  ['recipes','meal_items','events','shopping_items'].forEach(t => {
+  ['recipes','meal_items','events','shopping_items','chores','chore_logs'].forEach(t => {
     ch = ch.on('postgres_changes', {event: '*', schema: 'public', table: t}, p => onChange(t, p));
   });
   ['spaces','space_members','profiles'].forEach(t => {
@@ -373,7 +381,8 @@ function saveSnapshotSoon(){
   clearTimeout(snapT);
   snapT = setTimeout(() => {
     const snap = {v: 2, at: Date.now(), spaces: [...S.spaces.values()], members: S.members, profiles: [...S.profiles.values()],
-      recipes: [...S.recipes.values()], meals: [...S.meals.values()], events: [...S.events.values()], shop: [...S.shop.values()], settings: S.settings};
+      recipes: [...S.recipes.values()], meals: [...S.meals.values()], events: [...S.events.values()], shop: [...S.shop.values()], settings: S.settings,
+      chores: [...S.chores.values()], clogs: [...S.clogs.values()], choreSeeds: [...S.choreSeeds]};
     let txt = JSON.stringify(snap);
     if (txt.length > 3500000) { snap.recipes = snap.recipes.map(r => Object.assign({}, r, {thumb: ''})); txt = JSON.stringify(snap); }
     lsSet('snap.' + S.uid, txt);
@@ -392,6 +401,7 @@ function loadSnapshot(uid){
     S.meals = new Map(s.meals.map(x => [x.id, x]));
     S.events = new Map(s.events.map(x => [x.id, x]));
     S.shop = new Map(s.shop.map(x => [x.id, x]));
+    S.chores = new Map((s.chores || []).map(x => [x.id, x])); S.clogs = new Map((s.clogs || []).map(x => [x.id, x])); S.choreSeeds = new Set(s.choreSeeds || []);
     applySettings(s.settings);
     pickSpaces();
     S.loaded = true; markDirty();
@@ -401,6 +411,7 @@ function loadSnapshot(uid){
 function resetData(){
   S.profiles = new Map(); S.spaces = new Map(); S.members = [];
   S.recipes = new Map(); S.meals = new Map(); S.events = new Map(); S.shop = new Map();
+  S.chores = new Map(); S.clogs = new Map(); S.choreSeeds = new Set(); S.choresOk = true;
   S.personalId = S.sharedId = S.cur = null; S.loaded = false; S.photoCache = new Map();
   S.settings = {weekStart: 0, monthMeals: 'all', shiftTimes: {}, curSpace: null, rosterNames: {}, bunny: true};
   markDirty();
@@ -584,7 +595,7 @@ function renderView(){
   else if (S.status === 'auth') html = authHTML();
   else if (S.status === 'loading') html = gateHTML('読み込み中…', 'ふたりの献立帖を開いています。');
   else if (S.status === 'dberror') html = gateHTML('データを読み込めませんでした', S.dbErr || 'ページを再読み込みしてもう一度お試しください。') + '<div style="text-align:center"><button class="btn" data-act="reload">再読み込み</button> <button class="btn ghost" data-act="logout">ログアウト</button></div>';
-  else html = (S.offline ? '<p style="text-align:center"><span class="offline">オフラインです。前回の内容を表示しています</span></p>' : '') + ({cal: calHTML, recipes: recipesHTML, shop: shopHTML, prefs: prefsHTML}[S.tab])();
+  else html = (S.offline ? '<p style="text-align:center"><span class="offline">オフラインです。前回の内容を表示しています</span></p>' : '') + ({cal: calHTML, recipes: recipesHTML, shop: shopHTML, chores: choresHTML, prefs: prefsHTML}[S.tab])();
   const key = S.status + ':' + (S.status === 'ready' ? S.tab : S.authMode);
   if (v.dataset.key !== key) { v.dataset.key = key; v.innerHTML = html; }
   else patch(v, html);
@@ -597,7 +608,7 @@ function renderTabs(){
   if (S.status !== 'ready') { nav.hidden = true; return; }
   nav.hidden = false;
   const todo = curShop().filter(i => !i.checked).length;
-  const tabs = [['cal','カレンダー',IC.cal],['recipes','レシピ',IC.book],['shop','買い物',IC.cart],['prefs','設定',IC.gear]];
+  const tabs = [['cal','カレンダー',IC.cal],['recipes','レシピ',IC.book],['shop','買い物',IC.cart],['chores','家事',IC.home],['prefs','設定',IC.gear]];
   const html = tabs.map(([k, l, ic]) => '<button class="tab" data-act="tab" data-tab="' + k + '"' + (S.tab === k ? ' aria-current="page"' : '') + '><span class="ic">' + ic + '</span>' + (k === 'shop' && todo ? '<span class="bdg">' + todo + '</span>' : '') + '<span>' + l + '</span></button>').join('');
   if (nav.innerHTML !== html) nav.innerHTML = html;
 }
@@ -1457,6 +1468,7 @@ function switchTab(t){
   S.adder = null; S.shopDup = null;
   render();
   window.scrollTo(0, S.scroll[t] || 0);
+  if (t === 'chores') ensureChoreSeed();
 }
 function submitDish(inp){
   if (!inp || !S.adder) return;
@@ -2439,6 +2451,350 @@ window.addEventListener('offline', () => { S.offline = true; scheduleRender(); }
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(() => {}); });
 }
+
+/* ---------- 家事 ----------
+ * 家事は「ふたり」のスペース（なければ「じぶん」）に1つの一覧として保存し、担当ごとの枠で表示する。
+ * チェック管理の家事は、最後の完了日＋頻度で「次の目安」を計算し、その日を含む週（日曜〜土曜）に出す。
+ * 週ごとの予定を作って保存するのではなく毎回計算するので、持ち越しても重複しない。
+ * 担当・実施者：'' = 未設定、'both' = ふたり、それ以外はメンバーのユーザーID
+ */
+const CCATS = [
+  {k: 'cooking', label: '料理・食事', em: '🍳'},
+  {k: 'cleaning', label: '掃除', em: '🧹'},
+  {k: 'laundry', label: '洗濯・衣類', em: '🧺'},
+  {k: 'supplies', label: '日用品・ゴミ', em: '🧴'},
+  {k: 'seasonal', label: '季節の家事', em: '🌸'},
+  {k: 'life', label: '暮らしの管理', em: '📋'}
+];
+const ccatOf = k => CCATS.find(c => c.k === k) || CCATS[5];
+const CFREQ = [['daily', '毎日'], ['days', '数日ごと'], ['weekly', '毎週'], ['biweekly', '隔週（2週に1回）'], ['monthly', '毎月'], ['months', '数か月ごと'], ['yearly', '年1回'], ['twice_yearly', '年2回'], ['irregular', '不定期']];
+const freqBase = c => ({daily: '毎日', weekly: '週1回', biweekly: '2週に1回', monthly: '月1回', yearly: '年1回', twice_yearly: '年2回', irregular: '不定期',
+  days: (c.freq_n || 2) + '日に1回', months: (c.freq_n || 2) + 'か月に1回'})[c.freq] || '';
+const freqText = c => c.freq_note || freqBase(c);
+// 初期の家事30項目：[カテゴリー, 家事名, 現在の担当, 理想の担当, 管理, 頻度, 数, 頻度の書き方, 実際の頻度, 所要時間, メモ]
+const CHORE_SEED = [
+  ['cooking', '夕食作り', 'あゆみ', 'あゆみ', 'fixed', 'daily', null, 'ほぼ毎日', '', '20〜60分', ''],
+  ['cooking', '献立を考える', 'あゆみ', 'あゆみ', 'fixed', 'weekly', null, '週2〜3回', '', '', ''],
+  ['cooking', '食材の買い物', 'あゆみ', 'あゆみ', 'fixed', 'weekly', null, '週1〜3回', '', '60分以上', ''],
+  ['cooking', 'お弁当作り', 'あゆみ', 'あゆみ', 'fixed', 'daily', null, '勤務に応じてほぼ毎日', '', '2〜20分', '前日に準備することが多い。じんの夜勤のときなどは作らないこともある'],
+  ['cooking', '食器・調理器具洗い', 'じん', 'じん', 'fixed', 'daily', null, '1日1〜2回', '', '5〜20分', ''],
+  ['cooking', '炊飯・ご飯の冷凍保存', 'じん', 'じん', 'fixed', 'days', 2, '約2日に1回', '', '合計5〜10分', ''],
+  ['cooking', 'テーブル拭き', 'あゆみ', 'あゆみ', 'fixed', 'daily', null, '毎食後', '1〜2日に1回', '', ''],
+  ['cleaning', '掃除機がけ', 'あゆみ', 'あゆみ', 'check', 'weekly', null, '4〜7日に1回', '', '15分', ''],
+  ['cleaning', 'トイレ掃除', 'あゆみ', 'じん', 'check', 'weekly', null, '', '約2週に1回', '5〜10分', ''],
+  ['cleaning', '洗面所・排水口掃除', 'あゆみ', 'あゆみ', 'check', 'weekly', null, '', '約2週に1回', '5〜10分', ''],
+  ['cleaning', 'お風呂・排水口掃除', 'ふたり', 'ふたり', 'fixed', 'weekly', null, '週1〜3回', '', '約5分', 'ふたりの担当だけど、実際はあゆみが多め'],
+  ['cleaning', 'シンク・排水口掃除', 'じん', 'じん', 'fixed', 'irregular', null, '', '', '約5分', '主にじん。あゆみがすることもある'],
+  ['cleaning', '玄関・靴箱の掃除', 'あゆみ', 'あゆみ', 'check', 'weekly', null, '', '約月1回', '5〜10分', ''],
+  ['laundry', '洗濯・干す', 'じん', 'じん', 'fixed', 'days', 2, '約2日に1回', '', '10〜20分', ''],
+  ['laundry', '洗濯物を畳む・しまう', 'ふたり', 'ふたり', 'fixed', 'days', 2, '2日に1回', 'まとめてすることもある', '5〜10分', ''],
+  ['laundry', 'シーツ・枕カバー交換', 'あゆみ', 'じん', 'check', 'biweekly', null, '', '1〜2か月に1回', '洗濯・干すのは約10分', 'カバーの取り付けはふたりですることもある'],
+  ['laundry', '衣替え', 'あゆみ', 'あゆみ', 'check', 'twice_yearly', null, '春・秋の年2回', '', '半日程度', 'あゆみの洋服が対象（じんは基本的にしない）'],
+  ['supplies', '日用品の在庫確認・購入', 'あゆみ', 'あゆみ', 'fixed', 'irregular', null, '必要なとき', '', '約20分（ドラッグストアに寄る）', ''],
+  ['supplies', '日用品の詰め替え・交換', 'あゆみ', 'ふたり', 'fixed', 'irregular', null, '必要なとき', '', '1〜5分', ''],
+  ['supplies', '普段のゴミ出し', 'じん', 'じん', 'fixed', 'irregular', null, '収集日の朝', '', '10〜15分', '朝にまとめて出すことが多い'],
+  ['supplies', 'ダンボールの資源回収', 'あゆみ', 'あゆみ', 'check', 'irregular', null, '溜まったら（目安：約3か月に1回）', '', '約10分', 'スーパーの資源回収に持っていく'],
+  ['supplies', '瓶・缶のゴミ出し', 'あゆみ', 'あゆみ', 'fixed', 'irregular', null, '溜まり具合と回収日に合わせて（目安：約3か月に1回）', '', '5〜10分', ''],
+  ['seasonal', 'レンジフード掃除', 'あゆみ', 'あゆみ', 'check', 'twice_yearly', null, '年2回（仮）', '', '1〜2時間', 'GW・シルバーウィーク頃の大掃除候補。ふたりの休みが合えば分担'],
+  ['seasonal', 'エアコン掃除', 'あゆみ', 'あゆみ', 'check', 'twice_yearly', null, '年2回（仮）', '', '約30分', 'GW・シルバーウィーク頃の大掃除候補。ふたりの休みが合えば分担'],
+  ['seasonal', '冷蔵庫掃除', 'あゆみ', 'あゆみ', 'check', 'twice_yearly', null, '年2回（仮）', '', '1〜2時間', 'GW・シルバーウィーク頃の大掃除候補。ふたりの休みが合えば分担'],
+  ['seasonal', 'カーペット洗濯', 'あゆみ', 'あゆみ', 'check', 'twice_yearly', null, '年2回（仮）', '', '2〜3時間', 'GW・シルバーウィーク頃の大掃除候補。ふたりの休みが合えば分担'],
+  ['seasonal', '毛布・タオルケット洗濯', 'あゆみ', 'あゆみ', 'check', 'twice_yearly', null, '年2回（仮）', '', '約30分', 'GW・シルバーウィーク頃の大掃除候補。ふたりの休みが合えば分担'],
+  ['seasonal', '洗濯槽の掃除', 'あゆみ', 'あゆみ', 'check', 'twice_yearly', null, '年2回', '', '約5分（運転時間を除く）', '担当は仮（あゆみ）。ちがっていたら変更してください'],
+  ['life', '家計管理・現金引き出し', 'ふたり', 'じん', 'check', 'monthly', null, '月1回', '', '30〜60分', 'あゆみからじんへ引き継ぎ中。支出の確認、生活費の精算・振り分け、現金の引き出し'],
+  ['life', '郵便物の確認・仕分け', 'ふたり', 'ふたり', 'fixed', 'irregular', null, '郵便物が届いたとき', '', '約2分', '気づいたほうが確認。不要なものは処分し、必要なものを各自に振り分ける']
+];
+const choreSpace = () => S.sharedId || S.personalId;
+const choreMembers = () => spaceMembers(choreSpace()).map(m => m.user_id).sort((a, b) => (a === S.uid ? -1 : b === S.uid ? 1 : 0));
+const whoName = v => v === 'both' ? 'ふたり' : !v ? '未設定' : nameOf(v);
+const whoBadge = v => v === 'both' ? '<i class="who who-both xs">ふたり</i>' : !v ? '<span class="tag">未設定</span>' : whoHTML(v, 'xs') + '<span class="ch-wn">' + esc(nameOf(v)) + '</span>';
+const cmd = s => { const d = pd(s); return (d.getMonth() + 1) + '/' + d.getDate() + '（' + WD[d.getDay()] + '）'; };
+const cweekStart = s => addD(s, -pd(s).getDay()); // 家事の週は設定にかかわらず日曜はじまり
+function addMonths(s, n){
+  const d = pd(s), day = d.getDate(), t = new Date(d.getFullYear(), d.getMonth() + n, 1);
+  t.setDate(Math.min(day, new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate()));
+  return ds(t);
+}
+// 前回の実施日と頻度から、次の目安の日。不定期は null
+function choreNext(c, from){
+  const n = Math.max(1, Math.min(366, +c.freq_n || 0));
+  switch (c.freq) {
+    case 'daily': return addD(from, 1);
+    case 'days': return addD(from, +c.freq_n ? n : 2);
+    case 'weekly': return addD(from, 7);
+    case 'biweekly': return addD(from, 14);
+    case 'monthly': return addMonths(from, 1);
+    case 'months': return addMonths(from, +c.freq_n ? n : 2);
+    case 'yearly': return addMonths(from, 12);
+    case 'twice_yearly': return addMonths(from, 6);
+    default: return null;
+  }
+}
+let CIDX = {ver: -1};
+function cidx(){
+  if (CIDX.ver === S.ver) return CIDX;
+  const sp = choreSpace();
+  const chores = [...S.chores.values()].filter(c => c.space_id === sp).sort((a, b) => (a.position - b.position) || String(a.created_at).localeCompare(String(b.created_at)));
+  const logs = new Map();
+  S.clogs.forEach(l => { if (l.space_id !== sp) return; if (!logs.has(l.chore_id)) logs.set(l.chore_id, []); logs.get(l.chore_id).push(l); });
+  logs.forEach(a => a.sort((x, y) => x.done_on.localeCompare(y.done_on) || String(x.created_at).localeCompare(String(y.created_at))));
+  CIDX = {ver: S.ver, chores, logs};
+  return CIDX;
+}
+const logsOf = id => cidx().logs.get(id) || [];
+const lastLog = id => { const a = logsOf(id); return a.length ? a[a.length - 1] : null; };
+// その週に出す家事：前の週までの最後の完了日から目安を計算し、目安がこの週以前なら表示（未完了なら次の週にも出つづける）
+function weekChores(W){
+  const E = addD(W, 6), cur = cweekStart(todayS()), items = [], waiting = [];
+  for (const c of cidx().chores) {
+    if (c.mode !== 'check') continue;
+    const logs = logsOf(c.id);
+    const inW = logs.filter(l => l.done_on >= W && l.done_on <= E);
+    let prev = null; for (const l of logs) if (l.done_on < W) prev = l;
+    const due = prev ? choreNext(c, prev.done_on) : null;
+    if (due && due <= E) items.push({c, prev, due, carried: due < W, done: inW});
+    else if (inW.length) items.push({c, prev, due: null, done: inW});
+    else if (W === cur && (!logs.length || c.freq === 'irregular')) waiting.push(c);
+  }
+  return {items, waiting};
+}
+const choreFrames = () => choreMembers().concat(['both', '']);
+const frameOf = c => choreFrames().includes(c.current_who) ? c.current_who : '';
+const whoFilterOk = c => S.ch.who === 'all' || frameOf(c) === S.ch.who;
+
+function choreRowHTML(c, opt){
+  opt = opt || {};
+  const sub = [];
+  if (opt.week) {
+    if (opt.week.done.length) sub.push('<span class="tag">この週に完了</span>');
+    else if (opt.week.carried) sub.push('<span class="tag">' + cmd(cweekStart(opt.week.due)).replace(/（.）/, '') + 'の週から</span>');
+    if (opt.week.prev) sub.push('前回 ' + cmd(opt.week.prev.done_on) + (opt.week.prev.done_by ? ' ' + esc(whoName(opt.week.prev.done_by)) : ''));
+  } else {
+    sub.push('<span class="tag">' + (c.mode === 'check' ? 'チェック' : '固定') + '</span>');
+    if (!opt.noWho) sub.push(whoBadge(c.current_who));
+    if (c.ideal_who !== c.current_who) sub.push('<span class="ch-ideal">理想：' + esc(whoName(c.ideal_who)) + '</span>');
+    sub.push(esc(freqText(c)) + (c.duration ? '・' + esc(c.duration) : ''));
+    if (c.actual_freq) sub.push('<span class="ch-ideal">実際：' + esc(c.actual_freq) + '</span>');
+    if (c.mode === 'check') {
+      const l = lastLog(c.id), due = l ? choreNext(c, l.done_on) : null;
+      sub.push(l ? '前回 ' + cmd(l.done_on) + (due ? '・次の目安 ' + cmd(cweekStart(due)).replace(/（.）/, '') + 'の週' : '') : 'まだ記録がありません');
+    }
+  }
+  let right = '';
+  if (opt.week && opt.week.done.length) right = opt.week.done.map(l => '<button class="ch-done" data-act="clogEdit" data-id="' + esc(l.id) + '">✓ ' + cmd(l.done_on).replace(/（.）/, '') + ' ' + esc(whoName(l.done_by)) + '</button>').join('');
+  else if (c.mode === 'check' && opt.canDone !== false) right = '<button class="btn sm" data-act="choreDone" data-id="' + esc(c.id) + '">完了</button>';
+  return '<div class="ch-row' + (opt.week && opt.week.done.length ? ' done' : '') + '"><button class="ch-main" data-act="openChore" data-id="' + esc(c.id) + '"><span class="em" aria-hidden="true">' + ccatOf(c.category).em + '</span>'
+    + '<span style="min-width:0"><span class="ch-name">' + esc(c.name) + '</span><span class="ch-sub">' + sub.map(x => '<span>' + x + '</span>').join('') + '</span></span></button><span class="ch-right">' + right + '</span></div>';
+}
+function choresHTML(){
+  const cur = cweekStart(todayS());
+  if (!S.ch.wk) S.ch.wk = cur;
+  const whoChips = [['all', 'すべて']].concat(choreMembers().map(id => [id, nameOf(id)]), [['both', 'ふたり'], ['', '未設定']]);
+  const head = '<header class="top"><div class="page-head"><h1 class="page-title">家事</h1><span class="sp"></span>'
+    + '<div class="seg" role="group"><button data-act="chView" data-v="week" aria-pressed="' + (S.ch.view === 'week') + '">週間</button><button data-act="chView" data-v="list" aria-pressed="' + (S.ch.view === 'list') + '">一覧</button></div></div>'
+    + '<div class="chips" role="group" aria-label="担当で絞り込み">' + whoChips.map(([v, l]) => '<button class="chip" data-act="chWho" data-v="' + esc(v) + '" aria-pressed="' + (S.ch.who === v) + '">' + esc(l) + '</button>').join('') + '</div></header>';
+  const fab = '<button class="fab" data-act="choreNew" aria-label="家事を追加">' + IC.plus + '</button>';
+  if (!S.loaded) return head + '<p class="muted small" style="padding:20px 4px">読み込んでいます…</p>';
+  if (!S.choresOk) return head + '<div class="empty"><div class="em">🧺</div><h2>家事のデータを読み込めませんでした</h2><p class="small">通信できるところで、アプリを開き直してください。</p></div>';
+  const all = cidx().chores;
+  if (!all.length && !S.choreSeeds.has(choreSpace())) return head + '<p class="muted small" style="padding:20px 4px">はじめての家事一覧を準備しています…</p>';
+  let body = '';
+  if (S.ch.view === 'list') {
+    if (!all.length) body = '<div class="empty"><div class="em">🧹</div><h2>家事はまだありません</h2><p class="small">右下の＋から追加できます。</p></div>';
+    for (const cat of CCATS) {
+      const list = all.filter(c => c.category === cat.k && whoFilterOk(c));
+      if (!list.length) continue;
+      body += '<section class="card ch-card"><h2 class="ch-frame-h"><span>' + cat.em + ' ' + cat.label + '</span><span class="cnt">' + list.length + '件</span></h2>'
+        + (cat.k === 'seasonal' ? '<p class="note" style="margin:-2px 0 4px">大掃除の候補をまとめて確認できます。ひとつずつ完了を記録できます。</p>' : '')
+        + list.map(c => choreRowHTML(c, {canDone: true})).join('') + '</section>';
+    }
+    if (all.length && !body) body = '<div class="empty"><div class="em">🔍</div><h2>この担当の家事はありません</h2></div>';
+  } else {
+    const W = S.ch.wk, diff = Math.round(daysBetween(cur, W) / 7);
+    const rel = diff === 0 ? '今週' : diff === -1 ? '先週' : diff === 1 ? '来週' : diff < 0 ? (-diff) + '週前' : diff + '週後';
+    body += '<div class="ch-nav"><button class="icon-btn" data-act="chWeek" data-n="-1" aria-label="前の週">' + IC.left + '</button>'
+      + '<div class="ch-wl"><b>' + rel + '</b><small>' + cmd(W) + ' 〜 ' + cmd(addD(W, 6)) + '</small></div>'
+      + '<button class="icon-btn" data-act="chWeek" data-n="1" aria-label="次の週">' + IC.right + '</button></div>'
+      + (diff ? '<div style="text-align:center;margin:-4px 0 6px"><button class="chip" data-act="chWeek" data-n="0">今週にもどる</button></div>' : '');
+    const {items, waiting} = weekChores(W);
+    const shown = items.filter(x => whoFilterOk(x.c));
+    const frames = choreFrames().filter(f => S.ch.who === 'all' || S.ch.who === f);
+    let any = false;
+    for (const f of frames) {
+      const list = shown.filter(x => frameOf(x.c) === f);
+      if (!list.length) continue;
+      any = true;
+      const done = list.filter(x => x.done.length).length;
+      body += '<section class="card ch-card"><h2 class="ch-frame-h">' + (f === 'both' ? '<i class="who who-both">ふたり</i><span>ふたりの家事</span>' : f ? whoHTML(f) + '<span>' + esc(nameOf(f)) + 'の家事</span>' : '<span>担当が未設定の家事</span>')
+        + '<span class="cnt">' + done + ' / ' + list.length + ' 完了</span></h2>' + list.map(x => choreRowHTML(x.c, {week: x})).join('') + '</section>';
+    }
+    if (!any) body += '<div class="empty" style="padding:24px 16px"><div class="em">🌿</div><h2>この週に目安が来ている家事はありません</h2><p class="small">チェック管理の家事は、完了を記録すると次の目安の週に出てきます。毎日の家事（固定表示）は「一覧」で確認できます。</p></div>';
+    const wait = waiting.filter(whoFilterOk);
+    if (wait.length) {
+      body += '<section class="card ch-card"><button class="ch-wait-h" data-act="chWait" aria-expanded="' + !!S.ch.waitOpen + '"><span>📝 記録待ち・不定期の家事</span><span class="cnt">' + wait.length + '件 ' + (S.ch.waitOpen ? '▲' : '▼') + '</span></button>'
+        + (S.ch.waitOpen ? '<p class="note" style="margin:6px 0 2px">まだ完了の記録がない家事と、不定期の家事です。やったら「完了」で記録すると、次からは目安の週に出てきます。</p>' + wait.map(c => choreRowHTML(c, {canDone: true})).join('') : '') + '</section>';
+    }
+  }
+  return head + body + '<div style="height:64px" aria-hidden="true"></div>' + fab;
+}
+
+// 初めて家事画面を開いたときに、初期の30項目を1回だけ登録する（サーバー側で1スペース1回に限定）
+let choreSeedBusy = false;
+async function ensureChoreSeed(){
+  const sp = choreSpace();
+  if (!sp || !S.loaded || S.offline || !S.choresOk || !S.lastFetch || choreSeedBusy || S.choreSeeds.has(sp)) return;
+  choreSeedBusy = true;
+  try {
+    const ids = choreMembers();
+    const byName = n => ids.find(id => String(profileOf(id).display_name || '').trim() === n) || '';
+    const W = {'じん': byName('じん'), 'あゆみ': byName('あゆみ'), 'ふたり': 'both'};
+    const items = CHORE_SEED.map((x, i) => ({category: x[0], name: x[1], current_who: W[x[2]] || '', ideal_who: W[x[3]] || '', mode: x[4], freq: x[5], freq_n: x[6], freq_note: x[7], actual_freq: x[8], duration: x[9], memo: x[10], position: i + 1}));
+    const {data, error} = await authedRpc('seed_chores', {p_space: sp, p_items: items});
+    if (!error) { S.choreSeeds.add(sp); if (data > 0) await refreshAll(); markDirty(); scheduleRender(); }
+  } finally { choreSeedBusy = false; }
+}
+
+SHEETS.chore = sh => {
+  const c = S.chores.get(sh.id);
+  if (!c) return head('家事') + '<div class="sh-body"><p class="muted">この家事は削除されました。</p></div>';
+  const cat = ccatOf(c.category), logs = logsOf(c.id).slice().reverse(), l = logs[0], due = l ? choreNext(c, l.done_on) : null;
+  const row = (k, v) => v ? '<dt>' + k + '</dt><dd>' + v + '</dd>' : '';
+  let body = '<p class="sub">' + cat.em + ' ' + cat.label + '・' + (c.mode === 'check' ? 'チェック管理' : '固定表示') + '</p><h2 class="r-title" style="margin-top:4px">' + esc(c.name) + '</h2>'
+    + '<dl class="ch-dl">' + row('現在の担当', esc(whoName(c.current_who))) + row('理想の担当', esc(whoName(c.ideal_who))) + row('理想の頻度', esc(freqText(c)))
+    + row('実際の頻度', esc(c.actual_freq)) + row('所要時間', esc(c.duration)) + row('メモ', esc(c.memo).replace(/\n/g, '<br>')) + '</dl>';
+  if (c.mode === 'check') {
+    body += '<div class="hint" style="margin-top:14px">' + (l ? '前回：' + cmd(l.done_on) + '・' + esc(whoName(l.done_by)) + '<br>次の目安：' + (due ? cmd(cweekStart(due)) + 'からの週' : '不定期のため目安はありません') : 'まだ完了の記録がありません。やったら記録すると、次の目安が出ます。') + '</div>'
+      + '<button class="btn primary block" style="margin-top:10px" data-act="choreDone" data-id="' + esc(c.id) + '">✓ 完了を記録</button>';
+    if (logs.length) body += '<h3 class="r-h">完了の記録</h3><ul class="ings">' + logs.slice(0, 20).map(x => '<li><button class="ch-log" data-act="clogEdit" data-id="' + esc(x.id) + '"><span>' + cmd(x.done_on) + '</span><span class="q">' + esc(whoName(x.done_by)) + ' ✎</span></button></li>').join('') + '</ul>';
+  }
+  body += '<h3 class="r-h">🛒 買い物リストに追加</h3><div class="r1 ch-shop"><input class="in" id="cs-name" placeholder="例：洗濯槽クリーナー" data-enter="choreShop" autocomplete="off" enterkeyhint="done"><button class="btn" data-act="choreShop">追加</button></div>';
+  return head('家事') + '<div class="sh-body">' + body + '</div><div class="sh-foot"><button class="btn danger" data-act="choreDelete" data-id="' + esc(c.id) + '">削除</button><button class="btn primary grow" data-act="choreEdit" data-id="' + esc(c.id) + '">編集</button></div>';
+};
+SHEETS.choreForm = sh => {
+  const d = sh.draft;
+  const whoSeg = f => '<div class="seg wide" role="group">' + choreMembers().map(id => [id, nameOf(id)]).concat([['both', 'ふたり'], ['', '未設定']]).map(([v, l]) => '<button data-act="cfWho" data-f="' + f + '" data-v="' + esc(v) + '" aria-pressed="' + (d[f] === v) + '">' + esc(l) + '</button>').join('') + '</div>';
+  const needN = d.freq === 'days' || d.freq === 'months';
+  return head(sh.isNew ? '家事を追加' : '家事を編集') + '<div class="sh-body">'
+    + '<div class="field"><label for="cf-name">家事名<em class="req">必須</em></label><input class="in" id="cf-name" value="' + esc(d.name) + '" maxlength="100" placeholder="例：ベランダ掃除" autocomplete="off"></div>'
+    + '<p class="err" id="cf-err"' + (sh.err ? '' : ' hidden') + '>' + esc(sh.err || '') + '</p>'
+    + '<div class="field"><span class="lbl">カテゴリー<em class="req">必須</em></span><div class="chips wrap">' + CCATS.map(c => '<button class="chip" data-act="cfCat" data-v="' + c.k + '" aria-pressed="' + (d.category === c.k) + '">' + c.em + ' ' + c.label + '</button>').join('') + '</div></div>'
+    + '<div class="field"><span class="lbl">管理方式</span><div class="seg wide" role="group"><button data-act="cfMode" data-v="fixed" aria-pressed="' + (d.mode === 'fixed') + '">固定表示</button><button data-act="cfMode" data-v="check" aria-pressed="' + (d.mode === 'check') + '">チェック管理</button></div>'
+    + '<p class="muted small">' + (d.mode === 'check' ? '完了を記録すると、前回の日付と頻度から次の目安の週に表示します。' : '担当や頻度を確認するための表示です。完了のチェックはしません。') + '</p></div>'
+    + '<div class="field"><span class="lbl">現在の担当</span>' + whoSeg('current_who') + '</div>'
+    + '<div class="field"><span class="lbl">理想の担当</span>' + whoSeg('ideal_who') + '</div>'
+    + '<div class="field"><label for="cf-freq">理想の頻度</label><div class="ch-freq"><select class="in" id="cf-freq" data-ch="cfFreq">' + CFREQ.map(([v, l]) => '<option value="' + v + '"' + (d.freq === v ? ' selected' : '') + '>' + l + '</option>').join('') + '</select>'
+    + (needN ? '<span class="serv"><input class="in" id="cf-n" type="number" inputmode="numeric" min="1" max="366" value="' + esc(d.freq_n || 2) + '" aria-label="何' + (d.freq === 'days' ? '日' : 'か月') + 'ごと"><span>' + (d.freq === 'days' ? '日ごと' : 'か月ごと') + '</span></span>' : '') + '</div>'
+    + '<input class="in" id="cf-note" value="' + esc(d.freq_note) + '" maxlength="60" placeholder="書き方（任意）：例 週2〜3回、4〜7日に1回" autocomplete="off"></div>'
+    + '<div class="field"><label for="cf-actual">実際の頻度（任意・参考）</label><input class="in" id="cf-actual" value="' + esc(d.actual_freq) + '" maxlength="60" placeholder="例：約2週に1回" autocomplete="off"></div>'
+    + '<div class="field"><label for="cf-dur">所要時間（任意）</label><input class="in" id="cf-dur" value="' + esc(d.duration) + '" maxlength="40" placeholder="例：15分、20〜60分" autocomplete="off"></div>'
+    + '<div class="field"><label for="cf-memo">メモ（任意）</label><textarea class="in" id="cf-memo" rows="3" maxlength="1000">' + esc(d.memo) + '</textarea></div>'
+    + '</div><div class="sh-foot"><button class="btn primary block" data-act="cfSave"' + (sh.busy ? ' disabled' : '') + '>保存する</button></div>';
+};
+SHEETS.clog = sh => {
+  const c = S.chores.get(sh.choreId), l = sh.logId ? S.clogs.get(sh.logId) : null;
+  if (!c || (sh.logId && !l)) return head('完了の記録') + '<div class="sh-body"><p class="muted">この記録は削除されました。</p></div>';
+  const opts = choreMembers().map(id => [id, nameOf(id)]).concat([['both', 'ふたり']]);
+  return head(l ? '記録を直す' : '完了を記録') + '<div class="sh-body"><p class="sub">' + ccatOf(c.category).em + ' ' + esc(c.name) + '</p>'
+    + '<div class="field"><span class="lbl">実施者</span><div class="seg wide" role="group">' + opts.map(([v, lb]) => '<button data-act="clWho" data-v="' + esc(v) + '" aria-pressed="' + (sh.who === v) + '">' + esc(lb) + '</button>').join('') + '</div></div>'
+    + '<div class="field"><label for="cl-date">実施日</label><input class="in" type="date" id="cl-date" value="' + esc(sh.date) + '" max="' + todayS() + '" data-fresh></div>'
+    + '<p class="muted small">実施日を直すと、次の目安も計算し直します。</p><p class="err" id="cl-err" hidden></p></div>'
+    + '<div class="sh-foot">' + (l ? '<button class="btn danger" data-act="clDelete">削除</button>' : '') + '<button class="btn primary grow" data-act="clSave"' + (sh.busy ? ' disabled' : '') + '>' + (l ? '保存する' : '記録する') + '</button></div>';
+};
+function openChoreForm(c){
+  const sp = choreSpace();
+  const draft = c ? {name: c.name, category: c.category, mode: c.mode, current_who: c.current_who, ideal_who: c.ideal_who, freq: c.freq, freq_n: c.freq_n, freq_note: c.freq_note, actual_freq: c.actual_freq, duration: c.duration, memo: c.memo}
+    : {name: '', category: '', mode: 'check', current_who: '', ideal_who: '', freq: 'weekly', freq_n: null, freq_note: '', actual_freq: '', duration: '', memo: ''};
+  openSheet('choreForm', {tall: true, static: true, isNew: !c, id: c ? c.id : uuid(), space: c ? c.space_id : sp, draft});
+}
+function collectCF(sh){
+  const v = id => { const n = document.getElementById(id); return n ? n.value : null; };
+  const d = sh.draft;
+  [['cf-name', 'name'], ['cf-note', 'freq_note'], ['cf-actual', 'actual_freq'], ['cf-dur', 'duration'], ['cf-memo', 'memo'], ['cf-freq', 'freq']].forEach(([id, k]) => { if (v(id) != null) d[k] = v(id); });
+  if (v('cf-n') != null) d.freq_n = parseInt(String(v('cf-n')).normalize('NFKC'), 10) || null;
+}
+Object.assign(A, {
+  chView: el => { S.ch.view = el.dataset.v === 'list' ? 'list' : 'week'; lsSet('chView', S.ch.view); render(); },
+  chWho: el => { S.ch.who = el.dataset.v; render(); },
+  chWeek: el => { const n = +el.dataset.n; S.ch.wk = n ? addD(S.ch.wk || cweekStart(todayS()), 7 * n) : cweekStart(todayS()); render(); },
+  chWait: () => { S.ch.waitOpen = !S.ch.waitOpen; render(); },
+  openChore: el => { if (S.chores.has(el.dataset.id)) openSheet('chore', {id: el.dataset.id, tall: true}); },
+  choreNew: () => openChoreForm(null),
+  choreEdit: el => { const c = S.chores.get(el.dataset.id); if (c) openChoreForm(c); },
+  cfCat: el => { const sh = topSheet(); collectCF(sh); sh.draft.category = el.dataset.v; sh.err = ''; refreshSheet(sh); },
+  cfMode: el => { const sh = topSheet(); collectCF(sh); sh.draft.mode = el.dataset.v === 'check' ? 'check' : 'fixed'; refreshSheet(sh); },
+  cfWho: el => { const sh = topSheet(); collectCF(sh); sh.draft[el.dataset.f === 'ideal_who' ? 'ideal_who' : 'current_who'] = el.dataset.v; refreshSheet(sh); },
+  cfSave: () => {
+    const sh = topSheet();
+    if (!sh || sh.type !== 'choreForm' || sh.busy) return;
+    collectCF(sh);
+    const d = sh.draft, name = String(d.name || '').trim();
+    const bad = m => { sh.err = m; refreshSheet(sh); };
+    if (!name) return bad('家事名を入力してください');
+    if (!CCATS.some(c => c.k === d.category)) return bad('カテゴリーを選んでください');
+    const needN = d.freq === 'days' || d.freq === 'months';
+    if (needN && !(d.freq_n >= 1 && d.freq_n <= 366)) return bad('何' + (d.freq === 'days' ? '日' : 'か月') + 'ごとかを数字で入力してください');
+    const row = {name: name.slice(0, 100), category: d.category, mode: d.mode === 'check' ? 'check' : 'fixed', current_who: d.current_who || '', ideal_who: d.ideal_who || '',
+      freq: CFREQ.some(f => f[0] === d.freq) ? d.freq : 'weekly', freq_n: needN ? d.freq_n : null, freq_note: String(d.freq_note || '').trim().slice(0, 60),
+      actual_freq: String(d.actual_freq || '').trim().slice(0, 60), duration: String(d.duration || '').trim().slice(0, 40), memo: String(d.memo || '').trim().slice(0, 1000)};
+    sh.busy = true;
+    if (sh.isNew) insertRow('chores', Object.assign({id: sh.id, space_id: sh.space, position: cidx().chores.reduce((m, c) => Math.max(m, c.position || 0), 0) + 1}, row));
+    else updateRow('chores', sh.id, row);
+    closeSheet(sh.sid);
+    toast(sh.isNew ? '家事を追加しました' : '変更を保存しました');
+  },
+  choreDelete: el => {
+    const c = S.chores.get(el.dataset.id); if (!c) return;
+    openConfirm('家事を削除', '「' + c.name + '」を削除します。完了の記録も消えます。元には戻せません。', [
+      {label: '削除する', cls: 'danger', fn: () => {
+        S.sheets.filter(s => (s.type === 'chore' && s.id === c.id) || (s.type === 'clog' && s.choreId === c.id)).forEach(s => closeSheet(s.sid));
+        S.clogs.forEach((l, id) => { if (l.chore_id === c.id) S.clogs.delete(id); });
+        deleteRows('chores', [c.id]); toast('家事を削除しました');
+      }},
+      {label: 'やめる', cls: 'ghost'}
+    ]);
+  },
+  choreDone: el => { const c = S.chores.get(el.dataset.id); if (c) openSheet('clog', {static: true, choreId: c.id, logId: null, who: S.uid, date: todayS()}); },
+  clogEdit: el => { const l = S.clogs.get(el.dataset.id); if (l) openSheet('clog', {static: true, choreId: l.chore_id, logId: l.id, who: l.done_by, date: l.done_on}); },
+  clWho: el => { const sh = topSheet(); const n = document.getElementById('cl-date'); if (n) sh.date = n.value; sh.who = el.dataset.v; refreshSheet(sh); },
+  clSave: () => {
+    const sh = topSheet();
+    if (!sh || sh.type !== 'clog' || sh.busy) return;
+    const n = document.getElementById('cl-date'), date = n ? n.value : sh.date, c = S.chores.get(sh.choreId);
+    const er = document.getElementById('cl-err');
+    if (!validDate(date) || date > todayS()) { if (er) { er.textContent = '実施日は今日までの日付を選んでください'; er.hidden = false; } return; }
+    if (!c) { closeSheet(sh.sid); return; }
+    sh.busy = true;
+    if (sh.logId) updateRow('chore_logs', sh.logId, {done_on: date, done_by: sh.who || ''});
+    else insertRow('chore_logs', {id: uuid(), space_id: c.space_id, chore_id: c.id, done_on: date, done_by: sh.who || ''});
+    closeSheet(sh.sid);
+    const l = lastLog(c.id), due = l ? choreNext(c, l.done_on) : null;
+    toast((sh.logId ? '記録を直しました' : '記録しました') + (due ? '（次の目安：' + cmd(cweekStart(due)).replace(/（.）/, '') + 'の週）' : ''));
+  },
+  clDelete: () => {
+    const sh = topSheet(); const l = sh && S.clogs.get(sh.logId);
+    if (!l) return;
+    const before = strip(l);
+    closeSheet(sh.sid);
+    deleteRows('chore_logs', [l.id]);
+    toast('記録を削除しました', {undo: () => insertRow('chore_logs', before)});
+  },
+  choreShop: () => {
+    const sh = S.sheets.slice().reverse().find(s => s.type === 'chore'), inp = document.getElementById('cs-name');
+    const name = inp ? inp.value.trim() : '';
+    if (!name) { if (inp) inp.focus(); return; }
+    const ex = curShop().find(i => !i.checked && normIng(i.name) === normIng(name));
+    if (ex) { toast('「' + ex.name + '」はもう買い物リストにあります'); return; }
+    const c = sh && S.chores.get(sh.id);
+    let cat = guessCat(name);
+    if (cat === 'その他' && c && c.category !== 'cooking') cat = '日用品';
+    insertRow('shopping_items', {id: uuid(), space_id: S.cur, name: name.slice(0, 200), qty: '', unit: '', category: cat, checked: false, source: {type: 'chore', chore_id: c ? c.id : null}});
+    inp.value = '';
+    toast('「' + name + '」を買い物リストに追加しました');
+  }
+});
+Object.assign(C, {
+  cfFreq: el => { const sh = topSheet(); if (!sh || sh.type !== 'choreForm') return; collectCF(sh); sh.draft.freq = el.value; if ((el.value === 'days' || el.value === 'months') && !sh.draft.freq_n) sh.draft.freq_n = 2; refreshSheet(sh); }
+});
 
 window.__kk = {S, refreshAll};
 boot();
