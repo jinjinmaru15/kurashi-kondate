@@ -19,7 +19,7 @@
   --font-body:"Zen Maru Gothic","Hiragino Maru Gothic ProN","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
   --font-hand:"Klee One","Zen Maru Gothic","Hiragino Mincho ProN",serif;
   --r-lg:20px; --r-md:16px; --r-sm:12px;
-  --bun-fur:#FBDDE3; --bun-line:#9A6A70; --bun-inear:#F2AFBC; --bun-cheek:#EE8E9F; --bun-nose:#DE7488; --bun-eye:#4A3132;
+  --bun-fur:#FBDDE3; --bun-line:#B27A84; --bun-inear:#F2AFBC; --bun-cheek:#EE8E9F; --bun-nose:#DE7488; --bun-eye:#4A3132;
 }
 @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
   --paper:#1E1918; --paper-2:#27201F; --card:#2B2423; --dot:#2C2524;
@@ -444,18 +444,19 @@ select.in{padding-right:30px;background-image:linear-gradient(45deg,transparent 
 .bunny{display:flex;align-items:flex-end;gap:4px;margin:2px 0 12px}
 .bun-btn{flex:none;width:76px;height:96px;padding:0;border-radius:50%;display:grid;place-items:center;-webkit-tap-highlight-color:transparent}
 .bun-svg{width:76px;height:96px;display:block;overflow:visible}
-.bun-fur{fill:var(--bun-fur);stroke:var(--bun-line);stroke-width:2;stroke-linejoin:round}
+.bun-sil-line{fill:var(--bun-line);stroke:var(--bun-line);stroke-width:3.4;stroke-linejoin:round}
+.bun-sil-fill{fill:var(--bun-fur);stroke:none}
 .bun-inear{fill:var(--bun-inear)}
 .bun-eye{fill:var(--bun-eye)}
 .bun-shine{fill:#fff}
 .bun-cheek{fill:var(--bun-cheek);opacity:.75}
-.bun-belly{fill:#FDEEF1}
-.bun-wood{stroke:#B98C66;stroke-width:2.6;stroke-linecap:round;fill:none}
-.bun-woodhead{fill:#E8C9A4;stroke:#B98C66;stroke-width:1.6}
+.bun-belly{fill:#FDEEF1;opacity:.85}
+.bun-wood{stroke:#C49A72;stroke-width:2.4;stroke-linecap:round;fill:none}
+.bun-woodhead{fill:#EDD3B2;stroke:#C49A72;stroke-width:1.3}
 .bun-spoon{transform-box:fill-box;transform-origin:0% 100%}
 .bun-btn.hop .bun-spoon{animation:bun-ear .55s ease}
 .bun-nose{fill:var(--bun-nose)}
-.bun-mouth{fill:none;stroke:var(--bun-line);stroke-width:1.5;stroke-linecap:round}
+.bun-mouth{fill:none;stroke:#8E5A64;stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round}
 .bun-ear{transform-box:fill-box;transform-origin:50% 100%}
 .bun-eyes{transform-box:fill-box;transform-origin:50% 50%;animation:bun-blink 5.5s infinite}
 .bun-btn.hop .bun-svg{animation:bun-hop .55s ease}
