@@ -31,7 +31,8 @@ self.addEventListener('fetch', e => {
   if (sameOrigin) {
     e.respondWith((async () => {
       try {
-        const res = await fetch(req);
+        // ページ本体はブラウザのキャッシュを使わず毎回確認する（更新がすぐ届くように）
+        const res = await fetch(req.mode === 'navigate' ? new Request(req.url, {cache: 'no-cache', credentials: 'same-origin'}) : req);
         if (res.ok) { const c = await caches.open(VERSION); c.put(req, res.clone()); }
         return res;
       } catch (err) {
