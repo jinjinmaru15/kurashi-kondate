@@ -564,3 +564,13 @@ select.in{padding-right:30px;background-image:linear-gradient(45deg,transparent 
 .cat-tile small{font-size:11px;color:var(--ink-3)}
 .gomi-banner .chev{margin-left:auto;color:var(--ink-3);display:grid}
 .gomi-banner b.t{color:var(--ink)}
+/* 月表示：予定を期間の帯で表示（勤務の下） */
+.lanes{display:flex;flex-direction:column;gap:2px;margin:1px 0}
+.ln{display:block;height:15px;position:relative;min-width:0}
+.bar{position:absolute;left:0;top:0;height:15px;width:calc(var(--span) * 100% + (var(--span) - 1) * 5px);border-radius:5px;padding:0 4px;font-size:10px;font-weight:700;line-height:15px;color:#3A2E2A;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;z-index:1;pointer-events:none}
+.bar.cont{left:-2px;width:calc(var(--span) * 100% + (var(--span) - 1) * 5px + 2px);border-top-left-radius:0;border-bottom-left-radius:0}
+.bar.more{width:calc(var(--span) * 100% + (var(--span) - 1) * 5px + 3px);border-top-right-radius:0;border-bottom-right-radius:0}
+.bar.cont.more{width:calc(var(--span) * 100% + (var(--span) - 1) * 5px + 5px)}
+.bar.bk-rose{box-shadow:inset 3px 0 0 var(--who-rose)} .bar.bk-sky{box-shadow:inset 3px 0 0 var(--who-sky)} .bar.bk-sage{box-shadow:inset 3px 0 0 var(--who-sage)} .bar.bk-apricot{box-shadow:inset 3px 0 0 var(--who-apricot)} .bar.bk-lavender{box-shadow:inset 3px 0 0 var(--who-lavender)}
+.sbs.row2.ph{min-height:15px}
+.ev-range{display:block;font-size:11px;color:var(--ink-2);font-weight:400}

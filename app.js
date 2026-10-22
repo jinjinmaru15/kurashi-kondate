@@ -6,7 +6,7 @@
 'use strict';
 
 const CFG = window.KONDATE_CONFIG || {};
-const APP_VERSION = '2.6.1';
+const APP_VERSION = '2.7';
 
 /* ---------- utils ---------- */
 const $ = (s, r) => (r || document).querySelector(s);
@@ -133,6 +133,9 @@ const evLabel = e => e.kind === 'shift'
   ? (e.type === 'other' ? (e.title || 'その他') : shiftOf(e.type).label)
   : (e.type === 'custom' ? (e.title || '予定') : (e.title ? planOf(e.type).label + '：' + e.title : planOf(e.type).label));
 const evTime = e => (e.start_time || e.end_time) ? ((e.start_time || '') + '〜' + (e.end_time || '')) : '';
+// 予定の最終日（終了日がなければ開始日と同じ）と、期間の書き方「11/5〜11/11」
+const evEnd = e => (e.end_date && e.end_date > e.date) ? e.end_date : e.date;
+const evRange = e => { if (evEnd(e) === e.date) return ''; const f = s => { const d = pd(s); return (d.getMonth() + 1) + '/' + d.getDate(); }; return f(e.date) + '〜' + f(evEnd(e)); };
 const slotToCat = k => (SLOTS.find(s => s.k === k) || SLOTS[3]).cat;
 const catToSlot = c => ({'主菜':'main','鍋':'main','麺類':'main','副菜':'side','汁物':'soup'})[c] || 'other';
 
@@ -428,7 +431,7 @@ function idx(){
   const ensure = d => { let x = days.get(d); if (!x) { x = {date: d, meals: {main: [], side: [], soup: [], other: []}, events: []}; days.set(d, x); } return x; };
   S.meals.forEach(m => { if (m.space_id === S.cur && ensure(m.date).meals[m.slot]) ensure(m.date).meals[m.slot].push(m); });
   days.forEach(d => SLOTS.forEach(s => d.meals[s.k].sort((a, b) => (a.position - b.position) || String(a.created_at).localeCompare(String(b.created_at)))));
-  S.events.forEach(e => { if (S.spaces.has(e.space_id)) ensure(e.date).events.push(e); });
+  S.events.forEach(e => { if (!S.spaces.has(e.space_id)) return; const end = evEnd(e); for (let d = e.date, n = 0; d <= end && n < 367; d = addD(d, 1), n++) ensure(d).events.push(e); });
   const rIndex = new Map(), recipes = [];
   S.recipes.forEach(r => { if (r.space_id === S.cur) { recipes.push(r); const k = norm(r.name); if (k && !rIndex.has(k)) rIndex.set(k, r); } });
   IDX = {ver: S.ver, days, rIndex, recipes};
@@ -742,6 +745,17 @@ function monthHTML(sel){
   const t = todayS(), shared = hasShared();
   let cells = '';
   const usedSh = new Set();
+  const LANES = 3, weeksL = [];
+  for (let r = 0; r < rows; r++) {
+    const w0 = addD(start, r * 7), w6 = addD(w0, 6), seen = new Map();
+    let row2 = false;
+    for (let k = 0; k < 7; k++) { const dy = idx().days.get(addD(w0, k)); if (!dy) continue; dy.events.forEach(e => { if (e.kind === 'plan' && !seen.has(e.id)) seen.set(e.id, e); }); if (dy.events.filter(e => e.kind === 'shift').length > 1) row2 = true; }
+    const items = [...seen.values()].map(e => { const end = evEnd(e), a = e.date < w0 ? w0 : e.date, b = end > w6 ? w6 : end; return {e, a, b, cont: e.date < w0, more: end > w6, span: daysBetween(a, b) + 1}; })
+      .sort((x, y) => x.a.localeCompare(y.a) || y.span - x.span || String(x.e.start_time || '99').localeCompare(String(y.e.start_time || '99')) || String(x.e.created_at || '').localeCompare(String(y.e.created_at || '')));
+    const laneEnd = [];
+    items.forEach(it => { let l = 0; while (l < laneEnd.length && laneEnd[l] >= it.a) l++; laneEnd[l] = it.b; it.lane = l; });
+    weeksL.push({items, used: Math.min(LANES, laneEnd.length), row2});
+  }
   for (let i = 0; i < rows * 7; i++) {
     const s = addD(start, i), dd = pd(s), dow = dd.getDay();
     const day = idx().days.get(s);
@@ -755,11 +769,18 @@ function monthHTML(sel){
     const shown = dishes.slice(0, 2).map(x => '<span class="m">' + esc(x.name) + '</span>').join('')
       + (dishes.length > 2 ? '<span class="m more">ほか' + (dishes.length - 2) + '品</span>' : '');
     const badges = shifts.slice(0, 2).map(e => '<i class="sb sh-' + e.type + (shared && e.person_id ? ' mk-' + colorOf(e.person_id) : '') + '">' + esc(shiftOf(e.type).short) + '</i>').join('');
-    const aria = jp(s) + (shifts.length ? '、' + shifts.map(e => (shared ? nameOf(e.person_id) + 'の' : '') + evLabel(e)).join('・') : '') + (dishes.length ? '、献立' + dishes.length + '品' : '');
+    const WL = weeksL[Math.floor(i / 7)];
+    let lanes = '';
+    for (let l = 0; l < WL.used; l++) {
+      const it = WL.items.find(x => x.lane === l && x.a <= s && x.b >= s);
+      lanes += '<span class="ln">' + (it && it.a === s ? '<span class="bar pl-' + it.e.type + (it.cont ? ' cont' : '') + (it.more ? ' more' : '') + (shared && it.e.person_id ? ' bk-' + colorOf(it.e.person_id) : '') + '" style="--span:' + it.span + '">' + esc(it.e.title || planOf(it.e.type).label) + '</span>' : '') + '</span>';
+    }
+    const hiddenN = WL.items.filter(x => x.lane >= LANES && x.a <= s && x.b >= s).length;
+    const aria = jp(s) + (shifts.length ? '、' + shifts.map(e => (shared ? nameOf(e.person_id) + 'の' : '') + evLabel(e)).join('・') : '') + (plans.length ? '、' + plans.map(e => evLabel(e)).join('・') : '') + (dishes.length ? '、献立' + dishes.length + '品' : '');
     cells += '<button class="' + cls + '" data-act="pickDate" data-date="' + s + '" aria-label="' + esc(aria) + '">'
       + '<span class="crow"><span class="dnum">' + dd.getDate() + '</span>' + (badges && shifts.length < 2 ? '<span class="sbs">' + badges + '</span>' : '') + '</span>'
-      + (shifts.length > 1 ? '<span class="sbs row2">' + badges + '</span>' : '')
-      + (plans.length ? '<span class="dots">' + plans.slice(0, 3).map(p => '<i class="pl-' + p.type + '"></i>').join('') + '</span>' : '')
+      + (shifts.length > 1 ? '<span class="sbs row2">' + badges + '</span>' : WL.row2 ? '<span class="sbs row2 ph" aria-hidden="true"></span>' : '')
+      + (lanes ? '<span class="lanes">' + lanes + '</span>' : '') + (hiddenN ? '<span class="m more">＋' + hiddenN + '件</span>' : '')
       + shown + '</button>';
   }
   const dow = Array.from({length: 7}, (_, i) => { const w = (ws + i) % 7; return '<span class="' + (w === 0 ? 'sun' : w === 6 ? 'sat' : '') + '">' + WD[w] + '</span>'; }).join('');
@@ -776,7 +797,7 @@ function evPillHTML(e, short){
   const who = shared ? whoHTML(e.person_id, 'xs') : '';
   const lock = shared && e.space_id !== S.sharedId ? '<span class="lock">🔒</span>' : '';
   if (e.kind === 'shift') return '<span class="evp">' + who + '<span class="pill sh-' + e.type + '">' + esc(evLabel(e)) + (evTime(e) && !short ? ' ' + esc(evTime(e)) : '') + '</span>' + lock + '</span>';
-  return '<span class="evp">' + who + '<span class="pill plan"><i class="pd pl-' + e.type + '"></i>' + esc(evLabel(e)) + (e.start_time ? ' ' + esc(e.start_time) : '') + '</span>' + lock + '</span>';
+  return '<span class="evp">' + who + '<span class="pill plan"><i class="pd pl-' + e.type + '"></i>' + esc(evLabel(e)) + (evRange(e) ? ' ' + esc(evRange(e)) : e.start_time ? ' ' + esc(e.start_time) : '') + '</span>' + lock + '</span>';
 }
 function weekHTML(sel){
   const start = weekStartOf(sel), t = todayS();
@@ -823,7 +844,7 @@ function evRowHTML(date, e){
   return '<button class="ev" data-act="editEvent" data-id="' + esc(e.id) + '">'
     + (e.kind === 'shift'
       ? (hasShared() ? whoHTML(e.person_id) : '') + '<span class="pill sh-' + e.type + '">' + esc(e.type === 'other' ? (e.title || 'その他') : shiftOf(e.type).label) + '</span>' + (e.type !== 'other' && e.title ? '<span class="ev-t">' + esc(e.title) + '</span>' : '')
-      : (hasShared() ? whoHTML(e.person_id) : '') + '<i class="pd pl-' + e.type + '"></i><span class="ev-t">' + esc(evLabel(e)) + '</span>')
+      : (hasShared() ? whoHTML(e.person_id) : '') + '<i class="pd pl-' + e.type + '"></i><span class="ev-t">' + esc(evLabel(e)) + (evRange(e) ? '<small class="ev-range">' + esc(evRange(e)) + '</small>' : '') + '</span>')
     + (evTime(e) ? '<span class="ev-time">' + esc(evTime(e)) + '</span>' : '')
     + (hasShared() && e.space_id !== S.sharedId ? '<span class="lock">🔒 自分だけ</span>' : '')
     + (e.memo ? '<span class="ev-memo">' + esc(e.memo) + '</span>' : '')
@@ -1157,13 +1178,14 @@ SHEETS.event = sh => {
     }
   }
   return head(sh.isNew ? (e.kind === 'shift' ? '勤務を追加' : '予定を追加') : '予定を編集') + '<div class="sh-body">'
-    + '<p class="sub">' + jp(sh.date) + (!sh.isNew && hasShared() && sh.createdBy ? '・' + esc(nameOf(sh.createdBy)) + 'が登録' : '') + '</p>'
+    + '<p class="sub">' + (e.kind === 'shift' ? jp(e.date) : '') + (!sh.isNew && hasShared() && sh.createdBy ? (e.kind === 'shift' ? '・' : '') + esc(nameOf(sh.createdBy)) + 'が登録' : '') + '</p>'
     + '<div class="seg wide" style="margin-top:12px" role="group" aria-label="種類"><button data-act="evKind" data-k="shift" aria-pressed="' + (e.kind === 'shift') + '">勤務</button><button data-act="evKind" data-k="plan" aria-pressed="' + (e.kind === 'plan') + '">予定</button></div>'
     + shareUI
     + '<div class="field"><span class="lbl">' + (e.kind === 'shift' ? '勤務区分' : '予定の種類') + '</span><div class="type-grid">'
     + types.map(t => '<button class="tchip' + (e.kind === 'shift' ? ' sh-' + t.k : '') + '" data-act="evType" data-t="' + t.k + '" aria-pressed="' + (e.type === t.k) + '">' + (e.kind === 'plan' ? '<i class="pd pl-' + t.k + '"></i>' : '') + t.label + '</button>').join('')
     + '</div></div>'
     + '<div class="field"><label for="ev-title">' + (needTitle ? '内容<em class="req">必須</em>' : '内容（任意）') + '</label><input class="in" id="ev-title" value="' + esc(e.title || '') + '" placeholder="' + ph + '" autocomplete="off" maxlength="100"></div>'
+    + (e.kind === 'plan' ? '<div class="field two"><div style="display:grid;gap:6px"><label for="ev-date" class="lbl">開始日</label><input class="in" type="date" id="ev-date" value="' + esc(e.date) + '" data-fresh></div><div style="display:grid;gap:6px"><label for="ev-edate" class="lbl">終了日（何日も続くとき）</label><input class="in" type="date" id="ev-edate" value="' + esc(e.endDate || '') + '" min="' + esc(e.date) + '" data-fresh></div></div>' : '')
     + '<div class="field two"><div style="display:grid;gap:6px"><label for="ev-start" class="lbl">開始</label><input class="in" type="time" id="ev-start" value="' + esc(e.start || '') + '" data-fresh></div><div style="display:grid;gap:6px"><label for="ev-end" class="lbl">終了</label><input class="in" type="time" id="ev-end" value="' + esc(e.end || '') + '" data-fresh></div></div>'
     + '<div class="field"><label for="ev-memo">メモ</label><textarea class="in" id="ev-memo" rows="2" maxlength="1000">' + esc(e.memo || '') + '</textarea></div>'
     + '<p class="err" id="ev-err"' + (sh.err ? '' : ' hidden') + '>' + esc(sh.err || '') + '</p>'
@@ -1646,6 +1668,7 @@ function readEventForm(sh){
   const d = sh.draft;
   const v = id => { const n = document.getElementById(id); return n ? n.value : ''; };
   d.title = v('ev-title').trim(); d.start = v('ev-start'); d.end = v('ev-end'); d.memo = v('ev-memo').trim();
+  if (document.getElementById('ev-date')) { d.date = v('ev-date') || d.date; d.endDate = v('ev-edate'); }
 }
 const shiftKey = d => (d.space === 'shared' && d.person === 'partner' ? 'p:' : '') + d.type;
 function presetTimes(sh){
@@ -1748,7 +1771,8 @@ function buildImport(json){
     const kind = e.kind === 'shift' ? 'shift' : 'plan';
     const okType = kind === 'shift' ? SHIFTS.some(s => s.k === e.type) : PLANS.some(p => p.k === e.type);
     events.push({id: uuid(), space_id: target, date, kind, type: okType ? e.type : (kind === 'shift' ? 'other' : 'custom'), title: String(e.title || '').slice(0, 100) || (okType ? '' : '予定'),
-      start_time: okTime(e.start || e.start_time), end_time: okTime(e.end || e.end_time), memo: String(e.memo || '').slice(0, 1000), person_id: S.uid});
+      start_time: okTime(e.start || e.start_time), end_time: okTime(e.end || e.end_time), memo: String(e.memo || '').slice(0, 1000), person_id: S.uid,
+      end_date: kind === 'plan' && validDate(e.end_date) && e.end_date > date && daysBetween(date, e.end_date) <= 366 ? e.end_date : null});
   };
   if (v1) {
     (json.days || []).forEach(d => {
@@ -1915,20 +1939,20 @@ const A = {
 
   newEvent: el => {
     const kind = el.dataset.kind;
-    const draft = {id: uuid(), kind, type: kind === 'shift' ? 'day' : 'out', title: '', start: '', end: '', memo: '', space: hasShared() ? 'shared' : 'personal', person: 'me'};
+    const draft = {id: uuid(), kind, type: kind === 'shift' ? 'day' : 'out', title: '', start: '', end: '', memo: '', space: hasShared() ? 'shared' : 'personal', person: 'me', date: el.dataset.date, endDate: ''};
     const sh = openSheet('event', {static: true, isNew: true, date: el.dataset.date, draft});
     presetTimes(sh); refreshSheet(sh);
   },
   editEvent: el => {
     const e = S.events.get(el.dataset.id); if (!e) return;
     const draft = {id: e.id, kind: e.kind, type: e.type, title: e.title || '', start: e.start_time || '', end: e.end_time || '', memo: e.memo || '',
-      space: e.space_id === S.sharedId ? 'shared' : 'personal', person: e.person_id === S.uid ? 'me' : e.person_id == null ? 'both' : 'partner', origSpace: e.space_id};
+      space: e.space_id === S.sharedId ? 'shared' : 'personal', person: e.person_id === S.uid ? 'me' : e.person_id == null ? 'both' : 'partner', origSpace: e.space_id, date: e.date, endDate: e.end_date && e.end_date > e.date ? e.end_date : ''};
     openSheet('event', {static: true, isNew: false, date: e.date, draft, createdBy: e.created_by});
   },
   evKind: el => {
     const sh = topSheet(); readEventForm(sh);
     if (sh.draft.kind === el.dataset.k) return;
-    sh.draft.kind = el.dataset.k; sh.draft.type = el.dataset.k === 'shift' ? 'day' : 'out';
+    sh.draft.kind = el.dataset.k; sh.draft.type = el.dataset.k === 'shift' ? 'day' : 'out'; if (sh.draft.kind === 'shift') sh.draft.endDate = '';
     if (sh.draft.kind === 'shift' && sh.draft.person === 'both') sh.draft.person = 'me';
     sh.draft.start = ''; sh.draft.end = ''; presetTimes(sh); sh.err = '';
     refreshSheet(sh);
@@ -1957,11 +1981,15 @@ const A = {
     const sh = topSheet(); readEventForm(sh);
     const e = sh.draft;
     if (e.kind === 'plan' && e.type === 'custom' && !e.title) { sh.err = '内容を入力してください'; refreshSheet(sh); const n = document.getElementById('ev-title'); n && n.focus(); return; }
-    if (e.start && e.end && e.kind === 'plan' && e.end < e.start) { sh.err = '終了時刻は開始時刻より後にしてください'; refreshSheet(sh); return; }
+    const date = validDate(e.date) ? e.date : sh.date;
+    const multi = e.kind === 'plan' && validDate(e.endDate) && e.endDate > date;
+    if (e.kind === 'plan' && e.endDate && validDate(e.endDate) && e.endDate < date) { sh.err = '終了日は開始日と同じか、後の日にしてください'; refreshSheet(sh); return; }
+    if (multi && daysBetween(date, e.endDate) > 366) { sh.err = '期間は1年以内にしてください'; refreshSheet(sh); return; }
+    if (e.start && e.end && e.kind === 'plan' && !multi && e.end < e.start) { sh.err = '終了時刻は開始時刻より後にしてください'; refreshSheet(sh); return; }
     const spaceId = e.space === 'shared' && S.sharedId ? S.sharedId : S.personalId;
     const pid = partnerId();
     const person = spaceId === S.sharedId ? (e.person === 'partner' && pid ? pid : e.person === 'both' && e.kind === 'plan' ? null : S.uid) : S.uid;
-    const row = {id: e.id, space_id: spaceId, date: sh.date, kind: e.kind, type: e.type, title: e.title, start_time: e.start, end_time: e.end, memo: e.memo, person_id: person};
+    const row = {id: e.id, space_id: spaceId, date, end_date: multi ? e.endDate : null, kind: e.kind, type: e.type, title: e.title, start_time: e.start, end_time: e.end, memo: e.memo, person_id: person};
     closeSheet(sh.sid);
     if (sh.isNew) insertRow('events', row);
     else if (e.origSpace && e.origSpace !== spaceId) {

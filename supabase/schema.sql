@@ -732,6 +732,16 @@ do $$ begin
 end $$;
 
 -- =====================================================================
+-- 予定の期間（v2.7）。終了日を足すだけ。空なら今までどおり1日の予定。何度実行しても大丈夫
+-- =====================================================================
+alter table public.events add column if not exists end_date date;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'events_end_date_check' and conrelid = 'public.events'::regclass) then
+    alter table public.events add constraint events_end_date_check check (end_date is null or (end_date >= date and end_date - date <= 366));
+  end if;
+end $$;
+
+-- =====================================================================
 -- オプション：「ふたりのスペースから抜ける」「メンバーを外す」
 -- 使うときだけ、この下を SQL Editor で実行してください。
 -- =====================================================================
