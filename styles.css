@@ -525,3 +525,28 @@ select.in{padding-right:30px;background-image:linear-gradient(45deg,transparent 
 .ch-shop{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
 .ch-freq{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .ch-freq select{flex:1;min-width:150px}
+/* 家事：やること */
+.td-card{margin-top:12px;padding:10px 0 2px}
+.td-h{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px;font-size:15px;font-weight:700;padding:2px 16px 4px}
+.td-h small{font-size:12px;color:var(--ink-2);font-weight:400}
+.td-h .cnt{margin-left:auto;font-size:12px;color:var(--ink-2);font-weight:400}
+.td-card .item:last-child{border-bottom:0}
+.td-main{flex-direction:column;align-items:flex-start;justify-content:center;gap:2px}
+.td-name{font-weight:600;overflow-wrap:anywhere}
+.td-sub{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;font-size:12px;color:var(--ink-2)}
+.td-ok{color:var(--rose);font-weight:700}
+.td-row.done .td-name{text-decoration:line-through;color:var(--ink-3)}
+.td-row.later .td-name{color:var(--ink-2)}
+.td-hint{margin:14px 4px 0;font-size:12px}
+.gomi-banner{display:flex;gap:12px;align-items:center;width:100%;text-align:left;margin-top:10px;padding:10px 14px;border-radius:var(--r-md);background:var(--pink-2);color:var(--ink);font-size:13px;line-height:1.7}
+.gomi-banner > span:first-child{font-size:24px;line-height:1}
+.gomi-banner b{display:inline-block;min-width:3.2em;color:var(--on-pink)}
+/* ゴミの日カレンダー */
+.gm-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px}
+.gm-dow{font-size:11px;text-align:center;color:var(--ink-2);padding:2px 0}
+.gm-dow.sun,.gm-cell.sun .n{color:var(--sun)} .gm-dow.sat,.gm-cell.sat .n{color:var(--sat)}
+.gm-cell{min-height:50px;border-radius:10px;padding:4px 1px;display:flex;flex-direction:column;align-items:center;gap:2px;background:var(--paper-2)}
+.gm-cell .n{font-size:12px;line-height:1}
+.gm-cell .g{font-size:15px;line-height:1.15;letter-spacing:-2px;text-align:center;word-break:break-all}
+.gm-cell.out{opacity:.35}
+.gm-cell.today{box-shadow:inset 0 0 0 2px var(--rose);background:var(--pink-2)}

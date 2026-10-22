@@ -6,7 +6,7 @@
 'use strict';
 
 const CFG = window.KONDATE_CONFIG || {};
-const APP_VERSION = '2.5.1';
+const APP_VERSION = '2.6';
 
 /* ---------- utils ---------- */
 const $ = (s, r) => (r || document).querySelector(s);
@@ -162,11 +162,11 @@ const S = {
   profiles: new Map(), spaces: new Map(), members: [],
   personalId: null, sharedId: null, cur: null,
   recipes: new Map(), meals: new Map(), events: new Map(), shop: new Map(),
-  chores: new Map(), clogs: new Map(), choreSeeds: new Set(), choresOk: true,
+  chores: new Map(), clogs: new Map(), choreSeeds: new Set(), choresOk: true, gomi: new Map(), gomiOk: true,
   settings: {weekStart: 0, monthMeals: 'all', shiftTimes: {}, curSpace: null, rosterNames: {}, bunny: true},
   loaded: false, offline: false, ver: 0,
   tab: ['cal','recipes','shop','chores','prefs'].includes(lsGet('tab')) ? lsGet('tab') : 'cal',
-  ch: {view: lsGet('chView') === 'list' ? 'list' : 'week', wk: null, who: 'all', waitOpen: false},
+  ch: {view: ['list', 'gomi'].includes(lsGet('chView')) ? lsGet('chView') : 'today', who: lsGet('chWho') || null, gm: null},
   cal: {view: lsGet('calView') === 'week' ? 'week' : 'month', sel: todayS()},
   adder: null, adderQ: '',
   rq: {text:'', filter:'all', cat:'all'},
@@ -179,7 +179,7 @@ const markDirty = () => { S.ver++; };
 
 /* ---------- supabase ---------- */
 let sb = null, channel = null, subscribedOnce = false;
-const TABLE_MAP = {recipes: 'recipes', meal_items: 'meals', events: 'events', shopping_items: 'shop', profiles: 'profiles', chores: 'chores', chore_logs: 'clogs'};
+const TABLE_MAP = {recipes: 'recipes', meal_items: 'meals', events: 'events', shopping_items: 'shop', profiles: 'profiles', chores: 'chores', chore_logs: 'clogs', garbage_rules: 'gomi'};
 const SERVER_COLS = ['created_by','updated_by','created_at','updated_at','checked_by','checked_at'];
 const strip = row => { const o = Object.assign({}, row); SERVER_COLS.forEach(k => delete o[k]); return o; };
 const isNetErr = e => { const m = String((e && (e.message || e)) || ''); return /Failed to fetch|NetworkError|Load failed|network|fetch/i.test(m) && !(e && e.code); };
@@ -287,11 +287,11 @@ function refreshAll(){
   refreshing = (async () => {
     try {
       const soft = p => p.then(v => v, () => null);
-      const [spaces, members, profiles, recipes, meals, events, shop, st, chores, clogs, seeds] = await Promise.all([
+      const [spaces, members, profiles, recipes, meals, events, shop, st, chores, clogs, seeds, gomi] = await Promise.all([
         fetchAll('spaces'), fetchAll('space_members', 'space_id,user_id,role,joined_at', 'space_id'), fetchAll('profiles'),
         fetchAll('recipes'), fetchAll('meal_items'), fetchAll('events'), fetchAll('shopping_items'),
         sb.from('user_settings').select('data').eq('user_id', S.uid).maybeSingle(),
-        soft(fetchAll('chores')), soft(fetchAll('chore_logs')), soft(fetchAll('chore_seeds', 'space_id', 'space_id'))
+        soft(fetchAll('chores')), soft(fetchAll('chore_logs')), soft(fetchAll('chore_seeds', 'space_id', 'space_id')), soft(fetchAll('garbage_rules'))
       ]);
       S.spaces = new Map(spaces.map(s => [s.id, s]));
       S.members = members;
@@ -302,6 +302,7 @@ function refreshAll(){
       mergeMap('shop', shop);
       if (chores && clogs && seeds) { mergeMap('chores', chores); mergeMap('clogs', clogs); S.choreSeeds = new Set(seeds.map(x => x.space_id)); S.choresOk = true; }
       else S.choresOk = false;
+      if (gomi) { mergeMap('gomi', gomi); S.gomiOk = true; } else S.gomiOk = false;
       if (st && st.data && st.data.data && !chains.has('user_settings:' + S.uid)) applySettings(st.data.data);
       pickSpaces();
       S.loaded = true; S.offline = false; S.lastFetch = Date.now();
@@ -346,7 +347,7 @@ function subscribe(){
   if (channel) { try { sb.removeChannel(channel); } catch (e) {} channel = null; }
   subscribedOnce = false;
   let ch = sb.channel('kondate-' + S.uid);
-  ['recipes','meal_items','events','shopping_items','chores','chore_logs'].forEach(t => {
+  ['recipes','meal_items','events','shopping_items','chores','chore_logs','garbage_rules'].forEach(t => {
     ch = ch.on('postgres_changes', {event: '*', schema: 'public', table: t}, p => onChange(t, p));
   });
   ['spaces','space_members','profiles'].forEach(t => {
@@ -382,7 +383,7 @@ function saveSnapshotSoon(){
   snapT = setTimeout(() => {
     const snap = {v: 2, at: Date.now(), spaces: [...S.spaces.values()], members: S.members, profiles: [...S.profiles.values()],
       recipes: [...S.recipes.values()], meals: [...S.meals.values()], events: [...S.events.values()], shop: [...S.shop.values()], settings: S.settings,
-      chores: [...S.chores.values()], clogs: [...S.clogs.values()], choreSeeds: [...S.choreSeeds]};
+      chores: [...S.chores.values()], clogs: [...S.clogs.values()], choreSeeds: [...S.choreSeeds], gomi: [...S.gomi.values()]};
     let txt = JSON.stringify(snap);
     if (txt.length > 3500000) { snap.recipes = snap.recipes.map(r => Object.assign({}, r, {thumb: ''})); txt = JSON.stringify(snap); }
     lsSet('snap.' + S.uid, txt);
@@ -401,7 +402,7 @@ function loadSnapshot(uid){
     S.meals = new Map(s.meals.map(x => [x.id, x]));
     S.events = new Map(s.events.map(x => [x.id, x]));
     S.shop = new Map(s.shop.map(x => [x.id, x]));
-    S.chores = new Map((s.chores || []).map(x => [x.id, x])); S.clogs = new Map((s.clogs || []).map(x => [x.id, x])); S.choreSeeds = new Set(s.choreSeeds || []);
+    S.chores = new Map((s.chores || []).map(x => [x.id, x])); S.clogs = new Map((s.clogs || []).map(x => [x.id, x])); S.choreSeeds = new Set(s.choreSeeds || []); S.gomi = new Map((s.gomi || []).map(x => [x.id, x]));
     applySettings(s.settings);
     pickSpaces();
     S.loaded = true; markDirty();
@@ -411,7 +412,7 @@ function loadSnapshot(uid){
 function resetData(){
   S.profiles = new Map(); S.spaces = new Map(); S.members = [];
   S.recipes = new Map(); S.meals = new Map(); S.events = new Map(); S.shop = new Map();
-  S.chores = new Map(); S.clogs = new Map(); S.choreSeeds = new Set(); S.choresOk = true;
+  S.chores = new Map(); S.clogs = new Map(); S.choreSeeds = new Set(); S.choresOk = true; S.gomi = new Map(); S.gomiOk = true;
   S.personalId = S.sharedId = S.cur = null; S.loaded = false; S.photoCache = new Map();
   S.settings = {weekStart: 0, monthMeals: 'all', shiftTimes: {}, curSpace: null, rosterNames: {}, bunny: true};
   markDirty();
@@ -684,6 +685,8 @@ function bunnyMessages(){
   } else {
     msgs.push({head: greet + label + ' ' + jpS(focus) + ' は、まだ予定がないよ', lines: ['<span>のんびりできそう？献立だけでも決めておく？</span>'], act: 'date', v: focus});
   }
+  const gomiToday = S.gomiOk ? gomiOn(focus) : [];
+  if (gomiToday.length) msgs.push({head: label + 'は ' + gomiToday.map(r => gomiEm(r.kind) + r.name).join('・') + ' の日だよ', lines: ['<span>' + esc(gomiToday.map(r => r.memo).filter(Boolean).join('・') || 'わすれずに出そうね 🗑') + '</span>'], act: 'gomi'});
   if (!dishes.length) msgs.push({head: label + 'の献立、まだ決まってないよ〜', lines: ['<span>レシピから選ぶと、材料を買い物リストにまとめられるよ</span>'], act: 'date', v: focus});
   const todo = curShop().filter(i => !i.checked);
   if (todo.length) msgs.push({head: '買い物リストに ' + todo.length + '件 あるよ 🛒', lines: ['<span>' + esc(todo.slice(0, 3).map(i => i.name).join('・')) + (todo.length > 3 ? ' ほか' : '') + '</span>'], act: 'tab', v: 'shop'});
@@ -1989,6 +1992,7 @@ const A = {
     const k = el.dataset.k, v = el.dataset.v;
     if (k === 'date' && validDate(v)) { S.cal.sel = v; S.cal.view = 'month'; lsSet('calView', 'month'); S.adder = null; render(); setTimeout(() => { const d = document.getElementById('day-in'); if (d) d.scrollIntoView({behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start'}); }, 50); }
     else if (k === 'tab') switchTab(v);
+    else if (k === 'gomi') { S.ch.view = 'gomi'; lsSet('chView', 'gomi'); switchTab('chores'); }
     else if (k === 'want') { S.rq.filter = 'want'; S.rq.cat = 'all'; S.rq.text = ''; switchTab('recipes'); }
   },
   setBunny: el => saveSettings({bunny: el.dataset.v === 'on'}),
@@ -2453,9 +2457,9 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
 }
 
 /* ---------- 家事 ----------
- * 家事は「ふたり」のスペース（なければ「じぶん」）に1つの一覧として保存し、担当ごとの枠で表示する。
- * チェック管理の家事は、最後の完了日＋頻度で「次の目安」を計算し、その日を含む週（日曜〜土曜）に出す。
- * 週ごとの予定を作って保存するのではなく毎回計算するので、持ち越しても重複しない。
+ * 家事は「ふたり」のスペース（なければ「じぶん」）に1つの一覧として保存する。
+ * 「やること」は人ごとに、きょう（毎日・数日ごと）／今週（毎週・隔週）／今月（毎月）／季節（時期の月）に分けて出す。
+ * 目安は、最後に「やった」日と頻度から毎回計算する（週ごとの予定は保存しないので、持ち越しても重複しない）。
  * 担当・実施者：'' = 未設定、'both' = ふたり、それ以外はメンバーのユーザーID
  */
 const CCATS = [
@@ -2467,53 +2471,64 @@ const CCATS = [
   {k: 'life', label: '暮らしの管理', em: '📋'}
 ];
 const ccatOf = k => CCATS.find(c => c.k === k) || CCATS[5];
-const CFREQ = [['daily', '毎日'], ['days', '数日ごと'], ['weekly', '毎週'], ['biweekly', '隔週（2週に1回）'], ['monthly', '毎月'], ['months', '数か月ごと'], ['yearly', '年1回'], ['twice_yearly', '年2回'], ['irregular', '不定期']];
+const CFREQ = [['daily', '毎日'], ['days', '数日ごと'], ['weekly', '毎週'], ['biweekly', '隔週（2週に1回）'], ['monthly', '毎月'], ['months', '数か月ごと'], ['yearly', '年1回'], ['twice_yearly', '年2回'], ['irregular', '不定期（必要なとき）']];
 const freqBase = c => ({daily: '毎日', weekly: '週1回', biweekly: '2週に1回', monthly: '月1回', yearly: '年1回', twice_yearly: '年2回', irregular: '不定期',
   days: (c.freq_n || 2) + '日に1回', months: (c.freq_n || 2) + 'か月に1回'})[c.freq] || '';
 const freqText = c => c.freq_note || freqBase(c);
-// 初期の家事30項目：[カテゴリー, 家事名, 現在の担当, 理想の担当, 管理, 頻度, 数, 頻度の書き方, 実際の頻度, 所要時間, メモ]
+// 初期の家事30項目：[カテゴリー, 家事名, 現在の担当, 理想の担当, 管理, 頻度, 数, 頻度の書き方, 実際の頻度, 所要時間, メモ, 時期（月）]
 const CHORE_SEED = [
-  ['cooking', '夕食作り', 'あゆみ', 'あゆみ', 'fixed', 'daily', null, 'ほぼ毎日', '', '20〜60分', ''],
-  ['cooking', '献立を考える', 'あゆみ', 'あゆみ', 'fixed', 'weekly', null, '週2〜3回', '', '', ''],
-  ['cooking', '食材の買い物', 'あゆみ', 'あゆみ', 'fixed', 'weekly', null, '週1〜3回', '', '60分以上', ''],
-  ['cooking', 'お弁当作り', 'あゆみ', 'あゆみ', 'fixed', 'daily', null, '勤務に応じてほぼ毎日', '', '2〜20分', '前日に準備することが多い。じんの夜勤のときなどは作らないこともある'],
-  ['cooking', '食器・調理器具洗い', 'じん', 'じん', 'fixed', 'daily', null, '1日1〜2回', '', '5〜20分', ''],
-  ['cooking', '炊飯・ご飯の冷凍保存', 'じん', 'じん', 'fixed', 'days', 2, '約2日に1回', '', '合計5〜10分', ''],
-  ['cooking', 'テーブル拭き', 'あゆみ', 'あゆみ', 'fixed', 'daily', null, '毎食後', '1〜2日に1回', '', ''],
+  ['cooking', '夕食作り', 'あゆみ', 'あゆみ', 'check', 'daily', null, 'ほぼ毎日', '', '20〜60分', ''],
+  ['cooking', '献立を考える', 'あゆみ', 'あゆみ', 'check', 'weekly', null, '週2〜3回', '', '', ''],
+  ['cooking', '食材の買い物', 'あゆみ', 'あゆみ', 'check', 'weekly', null, '週1〜3回', '', '60分以上', ''],
+  ['cooking', 'お弁当作り', 'あゆみ', 'あゆみ', 'check', 'daily', null, '勤務に応じてほぼ毎日', '', '2〜20分', '前日に準備することが多い。じんの夜勤のときなどは作らないこともある'],
+  ['cooking', '食器・調理器具洗い', 'じん', 'じん', 'check', 'daily', null, '1日1〜2回', '', '5〜20分', ''],
+  ['cooking', '炊飯・ご飯の冷凍保存', 'じん', 'じん', 'check', 'days', 2, '約2日に1回', '', '合計5〜10分', ''],
+  ['cooking', 'テーブル拭き', 'あゆみ', 'あゆみ', 'check', 'daily', null, '毎食後', '1〜2日に1回', '', ''],
   ['cleaning', '掃除機がけ', 'あゆみ', 'あゆみ', 'check', 'weekly', null, '4〜7日に1回', '', '15分', ''],
   ['cleaning', 'トイレ掃除', 'あゆみ', 'じん', 'check', 'weekly', null, '', '約2週に1回', '5〜10分', ''],
   ['cleaning', '洗面所・排水口掃除', 'あゆみ', 'あゆみ', 'check', 'weekly', null, '', '約2週に1回', '5〜10分', ''],
-  ['cleaning', 'お風呂・排水口掃除', 'ふたり', 'ふたり', 'fixed', 'weekly', null, '週1〜3回', '', '約5分', 'ふたりの担当だけど、実際はあゆみが多め'],
+  ['cleaning', 'お風呂・排水口掃除', 'ふたり', 'ふたり', 'check', 'weekly', null, '週1〜3回', '', '約5分', 'ふたりの担当だけど、実際はあゆみが多め'],
   ['cleaning', 'シンク・排水口掃除', 'じん', 'じん', 'fixed', 'irregular', null, '', '', '約5分', '主にじん。あゆみがすることもある'],
   ['cleaning', '玄関・靴箱の掃除', 'あゆみ', 'あゆみ', 'check', 'weekly', null, '', '約月1回', '5〜10分', ''],
-  ['laundry', '洗濯・干す', 'じん', 'じん', 'fixed', 'days', 2, '約2日に1回', '', '10〜20分', ''],
-  ['laundry', '洗濯物を畳む・しまう', 'ふたり', 'ふたり', 'fixed', 'days', 2, '2日に1回', 'まとめてすることもある', '5〜10分', ''],
+  ['laundry', '洗濯・干す', 'じん', 'じん', 'check', 'days', 2, '約2日に1回', '', '10〜20分', ''],
+  ['laundry', '洗濯物を畳む・しまう', 'ふたり', 'ふたり', 'check', 'days', 2, '2日に1回', 'まとめてすることもある', '5〜10分', ''],
   ['laundry', 'シーツ・枕カバー交換', 'あゆみ', 'じん', 'check', 'biweekly', null, '', '1〜2か月に1回', '洗濯・干すのは約10分', 'カバーの取り付けはふたりですることもある'],
-  ['laundry', '衣替え', 'あゆみ', 'あゆみ', 'check', 'twice_yearly', null, '春・秋の年2回', '', '半日程度', 'あゆみの洋服が対象（じんは基本的にしない）'],
+  ['laundry', '衣替え', 'あゆみ', 'あゆみ', 'check', 'twice_yearly', null, '春・秋の年2回', '', '半日程度', 'あゆみの洋服が対象（じんは基本的にしない）', [4, 5, 10, 11]],
   ['supplies', '日用品の在庫確認・購入', 'あゆみ', 'あゆみ', 'fixed', 'irregular', null, '必要なとき', '', '約20分（ドラッグストアに寄る）', ''],
   ['supplies', '日用品の詰め替え・交換', 'あゆみ', 'ふたり', 'fixed', 'irregular', null, '必要なとき', '', '1〜5分', ''],
   ['supplies', '普段のゴミ出し', 'じん', 'じん', 'fixed', 'irregular', null, '収集日の朝', '', '10〜15分', '朝にまとめて出すことが多い'],
   ['supplies', 'ダンボールの資源回収', 'あゆみ', 'あゆみ', 'check', 'irregular', null, '溜まったら（目安：約3か月に1回）', '', '約10分', 'スーパーの資源回収に持っていく'],
   ['supplies', '瓶・缶のゴミ出し', 'あゆみ', 'あゆみ', 'fixed', 'irregular', null, '溜まり具合と回収日に合わせて（目安：約3か月に1回）', '', '5〜10分', ''],
-  ['seasonal', 'レンジフード掃除', 'あゆみ', 'あゆみ', 'check', 'twice_yearly', null, '年2回（仮）', '', '1〜2時間', 'GW・シルバーウィーク頃の大掃除候補。ふたりの休みが合えば分担'],
-  ['seasonal', 'エアコン掃除', 'あゆみ', 'あゆみ', 'check', 'twice_yearly', null, '年2回（仮）', '', '約30分', 'GW・シルバーウィーク頃の大掃除候補。ふたりの休みが合えば分担'],
-  ['seasonal', '冷蔵庫掃除', 'あゆみ', 'あゆみ', 'check', 'twice_yearly', null, '年2回（仮）', '', '1〜2時間', 'GW・シルバーウィーク頃の大掃除候補。ふたりの休みが合えば分担'],
-  ['seasonal', 'カーペット洗濯', 'あゆみ', 'あゆみ', 'check', 'twice_yearly', null, '年2回（仮）', '', '2〜3時間', 'GW・シルバーウィーク頃の大掃除候補。ふたりの休みが合えば分担'],
-  ['seasonal', '毛布・タオルケット洗濯', 'あゆみ', 'あゆみ', 'check', 'twice_yearly', null, '年2回（仮）', '', '約30分', 'GW・シルバーウィーク頃の大掃除候補。ふたりの休みが合えば分担'],
-  ['seasonal', '洗濯槽の掃除', 'あゆみ', 'あゆみ', 'check', 'twice_yearly', null, '年2回', '', '約5分（運転時間を除く）', '担当は仮（あゆみ）。ちがっていたら変更してください'],
+  ['seasonal', 'レンジフード掃除', 'あゆみ', 'あゆみ', 'check', 'twice_yearly', null, '年2回（仮）', '', '1〜2時間', 'GW・シルバーウィーク頃の大掃除候補。ふたりの休みが合えば分担', [5, 9]],
+  ['seasonal', 'エアコン掃除', 'あゆみ', 'あゆみ', 'check', 'twice_yearly', null, '年2回（仮）', '', '約30分', 'GW・シルバーウィーク頃の大掃除候補。ふたりの休みが合えば分担', [5, 9]],
+  ['seasonal', '冷蔵庫掃除', 'あゆみ', 'あゆみ', 'check', 'twice_yearly', null, '年2回（仮）', '', '1〜2時間', 'GW・シルバーウィーク頃の大掃除候補。ふたりの休みが合えば分担', [5, 9]],
+  ['seasonal', 'カーペット洗濯', 'あゆみ', 'あゆみ', 'check', 'twice_yearly', null, '年2回（仮）', '', '2〜3時間', 'GW・シルバーウィーク頃の大掃除候補。ふたりの休みが合えば分担', [5, 9]],
+  ['seasonal', '毛布・タオルケット洗濯', 'あゆみ', 'あゆみ', 'check', 'twice_yearly', null, '年2回（仮）', '', '約30分', 'GW・シルバーウィーク頃の大掃除候補。ふたりの休みが合えば分担', [5, 9]],
+  ['seasonal', '洗濯槽の掃除', 'あゆみ', 'あゆみ', 'check', 'twice_yearly', null, '年2回', '', '約5分（運転時間を除く）', '担当は仮（あゆみ）。ちがっていたら変更してください', [5, 9]],
   ['life', '家計管理・現金引き出し', 'ふたり', 'じん', 'check', 'monthly', null, '月1回', '', '30〜60分', 'あゆみからじんへ引き継ぎ中。支出の確認、生活費の精算・振り分け、現金の引き出し'],
   ['life', '郵便物の確認・仕分け', 'ふたり', 'ふたり', 'fixed', 'irregular', null, '郵便物が届いたとき', '', '約2分', '気づいたほうが確認。不要なものは処分し、必要なものを各自に振り分ける']
 ];
 const choreSpace = () => S.sharedId || S.personalId;
 const choreMembers = () => spaceMembers(choreSpace()).map(m => m.user_id).sort((a, b) => (a === S.uid ? -1 : b === S.uid ? 1 : 0));
 const whoName = v => v === 'both' ? 'ふたり' : !v ? '未設定' : nameOf(v);
-const whoBadge = v => v === 'both' ? '<i class="who who-both xs">ふたり</i>' : !v ? '<span class="tag">未設定</span>' : whoHTML(v, 'xs') + '<span class="ch-wn">' + esc(nameOf(v)) + '</span>';
+const whoBadge = v => v === 'both' ? '<i class="who who-both xs">ふたり</i>' : !v ? '<span class="tag">担当なし</span>' : whoHTML(v, 'xs') + '<span class="ch-wn">' + esc(nameOf(v)) + '</span>';
 const cmd = s => { const d = pd(s); return (d.getMonth() + 1) + '/' + d.getDate() + '（' + WD[d.getDay()] + '）'; };
+const cmd0 = s => { const d = pd(s); return (d.getMonth() + 1) + '/' + d.getDate(); };
 const cweekStart = s => addD(s, -pd(s).getDay()); // 家事の週は設定にかかわらず日曜はじまり
+const monthStart = s => s.slice(0, 8) + '01';
+const monthEnd = s => { const d = pd(s); return ds(new Date(d.getFullYear(), d.getMonth() + 1, 0)); };
+const prevMonthStart = s => { const d = pd(s); return ds(new Date(d.getFullYear(), d.getMonth() - 1, 1)); };
 function addMonths(s, n){
   const d = pd(s), day = d.getDate(), t = new Date(d.getFullYear(), d.getMonth() + n, 1);
   t.setDate(Math.min(day, new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate()));
   return ds(t);
+}
+// 4,5,10,11 → 「4〜5月・10〜11月」
+function monthsText(ms){
+  const a = [...new Set((ms || []).map(Number))].filter(m => m >= 1 && m <= 12).sort((x, y) => x - y);
+  const runs = [];
+  a.forEach(m => { const r = runs[runs.length - 1]; if (r && r[1] === m - 1) r[1] = m; else runs.push([m, m]); });
+  return runs.map(([x, y]) => x === y ? x + '月' : x + '〜' + y + '月').join('・');
 }
 // 前回の実施日と頻度から、次の目安の日。不定期は null
 function choreNext(c, from){
@@ -2543,98 +2558,172 @@ function cidx(){
 }
 const logsOf = id => cidx().logs.get(id) || [];
 const lastLog = id => { const a = logsOf(id); return a.length ? a[a.length - 1] : null; };
-// その週に出す家事：前の週までの最後の完了日から目安を計算し、目安がこの週以前なら表示（未完了なら次の週にも出つづける）
-function weekChores(W){
-  const E = addD(W, 6), cur = cweekStart(todayS()), items = [], waiting = [];
-  for (const c of cidx().chores) {
-    if (c.mode !== 'check') continue;
-    const logs = logsOf(c.id);
-    const inW = logs.filter(l => l.done_on >= W && l.done_on <= E);
-    let prev = null; for (const l of logs) if (l.done_on < W) prev = l;
-    const due = prev ? choreNext(c, prev.done_on) : null;
-    if (due && due <= E) items.push({c, prev, due, carried: due < W, done: inW});
-    else if (inW.length) items.push({c, prev, due: null, done: inW});
-    else if (W === cur && (!logs.length || c.freq === 'irregular')) waiting.push(c);
-  }
-  return {items, waiting};
+// やることの区分：day（きょう）/ week（今週）/ month（今月）/ season（季節）。不定期は出さない
+function choreBucket(c){
+  if (c.freq === 'irregular') return null;
+  if (c.freq === 'daily' || (c.freq === 'days' && (+c.freq_n || 2) <= 3)) return 'day';
+  if (c.freq === 'days' || c.freq === 'weekly' || c.freq === 'biweekly') return 'week';
+  if (c.freq === 'monthly' || c.freq === 'months') return 'month';
+  return 'season';
 }
-const choreFrames = () => choreMembers().concat(['both', '']);
-const frameOf = c => choreFrames().includes(c.current_who) ? c.current_who : '';
-const whoFilterOk = c => S.ch.who === 'all' || frameOf(c) === S.ch.who;
-
-function choreRowHTML(c, opt){
-  opt = opt || {};
-  const sub = [];
-  if (opt.week) {
-    if (opt.week.done.length) sub.push('<span class="tag">この週に完了</span>');
-    else if (opt.week.carried) sub.push('<span class="tag">' + cmd(cweekStart(opt.week.due)).replace(/（.）/, '') + 'の週から</span>');
-    if (opt.week.prev) sub.push('前回 ' + cmd(opt.week.prev.done_on) + (opt.week.prev.done_by ? ' ' + esc(whoName(opt.week.prev.done_by)) : ''));
-  } else {
-    sub.push('<span class="tag">' + (c.mode === 'check' ? 'チェック' : '固定') + '</span>');
-    if (!opt.noWho) sub.push(whoBadge(c.current_who));
-    if (c.ideal_who !== c.current_who) sub.push('<span class="ch-ideal">理想：' + esc(whoName(c.ideal_who)) + '</span>');
-    sub.push(esc(freqText(c)) + (c.duration ? '・' + esc(c.duration) : ''));
-    if (c.actual_freq) sub.push('<span class="ch-ideal">実際：' + esc(c.actual_freq) + '</span>');
-    if (c.mode === 'check') {
-      const l = lastLog(c.id), due = l ? choreNext(c, l.done_on) : null;
-      sub.push(l ? '前回 ' + cmd(l.done_on) + (due ? '・次の目安 ' + cmd(cweekStart(due)).replace(/（.）/, '') + 'の週' : '') : 'まだ記録がありません');
-    }
+// その日（T）に「やること」に出すかと、いまの状態
+function choreStatus(c, T){
+  const b = choreBucket(c);
+  if (!b) return null;
+  const logs = logsOf(c.id), last = logs.length ? logs[logs.length - 1] : null;
+  const since = from => logs.filter(l => l.done_on >= from && l.done_on <= T);
+  if (b === 'day') {
+    const done = since(T), due = last ? choreNext(c, last.done_on) : null;
+    return {b, done, show: true, later: !done.length && due && due > T ? due : null, last};
   }
-  let right = '';
-  if (opt.week && opt.week.done.length) right = opt.week.done.map(l => '<button class="ch-done" data-act="clogEdit" data-id="' + esc(l.id) + '">✓ ' + cmd(l.done_on).replace(/（.）/, '') + ' ' + esc(whoName(l.done_by)) + '</button>').join('');
-  else if (c.mode === 'check' && opt.canDone !== false) right = '<button class="btn sm" data-act="choreDone" data-id="' + esc(c.id) + '">完了</button>';
-  return '<div class="ch-row' + (opt.week && opt.week.done.length ? ' done' : '') + '"><button class="ch-main" data-act="openChore" data-id="' + esc(c.id) + '"><span class="em" aria-hidden="true">' + ccatOf(c.category).em + '</span>'
-    + '<span style="min-width:0"><span class="ch-name">' + esc(c.name) + '</span><span class="ch-sub">' + sub.map(x => '<span>' + x + '</span>').join('') + '</span></span></button><span class="ch-right">' + right + '</span></div>';
+  if (b === 'week' || b === 'month') {
+    const P = b === 'week' ? cweekStart(T) : monthStart(T), PE = b === 'week' ? addD(P, 6) : monthEnd(T);
+    const done = since(P);
+    let prev = null; for (const l of logs) if (l.done_on < P) prev = l;
+    if (done.length) return {b, done, show: true, last};
+    if (!prev) return {b, done, show: true, first: true, last};
+    const due = choreNext(c, prev.done_on);
+    return {b, done, show: due <= PE, due, carried: due < P, last};
+  }
+  const months = (c.months || []).map(Number);
+  if (months.length) {
+    if (!months.includes(+T.slice(5, 7))) return {b, done: [], show: false, last};
+    let start = monthStart(T);
+    for (let i = 0; i < 11; i++) { const pm = prevMonthStart(start); if (months.includes(+pm.slice(5, 7))) start = pm; else break; }
+    return {b, done: since(start), show: true, season: months, last};
+  }
+  const due = last ? choreNext(c, last.done_on) : null, done = since(monthStart(T));
+  if (done.length) return {b, done, show: true, last};
+  return {b, done, show: !!due && due <= monthEnd(T), due, carried: !!due && due < monthStart(T), last};
+}
+const CBUCKETS = [
+  {k: 'day', em: '☀️', label: 'きょうの家事'},
+  {k: 'week', em: '📅', label: '今週の家事'},
+  {k: 'month', em: '🗓️', label: '今月の家事'},
+  {k: 'season', em: '🌸', label: '季節の家事'}
+];
+const chWho = () => { const w = S.ch.who; return w === 'all' || choreMembers().includes(w) ? w : (choreMembers().includes(S.uid) ? S.uid : 'all'); };
+const forWho = (c, w) => w === 'all' || c.current_who === w || c.current_who === 'both';
+
+/* ---------- ゴミの日 ---------- */
+const GOMI_KINDS = [['burnable', '燃えるゴミ', '🔥'], ['nonburnable', '燃えないゴミ', '🔩'], ['plastic', 'プラスチック', '♻️'], ['bottles', 'びん・かん・ペット', '🍾'], ['paper', '古紙・ダンボール', '📦'], ['bulky', '粗大ゴミ', '🛋️'], ['other', 'その他', '🗑️']];
+const gomiEm = k => (GOMI_KINDS.find(x => x[0] === k) || GOMI_KINDS[6])[2];
+const gomiRules = () => [...S.gomi.values()].filter(r => r.space_id === choreSpace()).sort((a, b) => (a.position - b.position) || String(a.created_at).localeCompare(String(b.created_at)));
+const gomiMatch = (r, s) => { const d = pd(s); return (r.weekdays || []).map(Number).includes(d.getDay()) && (!(r.weeks || []).length || r.weeks.map(Number).includes(Math.ceil(d.getDate() / 7))); };
+const gomiOn = s => gomiRules().filter(r => gomiMatch(r, s));
+const gomiNext = (r, from) => { for (let i = 0; i < 70; i++) { const s = addD(from, i); if (gomiMatch(r, s)) return s; } return null; };
+const gomiSched = r => { const wd = (r.weekdays || []).map(Number).sort().map(i => WD[i]).join('・'); return wd ? ((r.weeks || []).length ? '第' + r.weeks.map(Number).sort().join('・第') + ' ' + wd + '曜' : '毎週 ' + wd + '曜') : '曜日が未設定'; };
+const gomiLabel = list => list.map(r => gomiEm(r.kind) + esc(r.name)).join('・');
+
+function todoRowHTML(c, st, w){
+  const done = st.done.length > 0, last = done ? st.done[st.done.length - 1] : null, info = [];
+  if (done) info.push('<span class="td-ok">✓ ' + (st.b === 'day' ? '' : cmd0(last.done_on) + ' ') + esc(whoName(last.done_by)) + '</span>');
+  else if (st.later) info.push('次は ' + cmd(st.later));
+  else if (st.first) info.push('まだ記録なし');
+  else if (st.carried) info.push('<span class="tag">' + (st.b === 'week' ? '先週から' : '前の月から') + '</span>');
+  else if (st.due && st.b !== 'day') info.push('目安 ' + cmd(st.due));
+  if (st.season) info.push(monthsText(st.season) + 'ごろ');
+  if (w === 'all' || c.current_who === 'both') info.push(whoBadge(c.current_who));
+  if (!done && st.b === 'day' && c.freq_note && !st.later) info.push(esc(c.freq_note));
+  return '<div class="item td-row' + (done ? ' done' : '') + (st.later ? ' later' : '') + '"><button class="chk" role="checkbox" aria-checked="' + done + '" data-act="choreTick" data-id="' + esc(c.id) + '" aria-label="' + esc(c.name) + (done ? 'のチェックを外す' : 'をやった') + '"><span>✓</span></button>'
+    + '<button class="item-main td-main" data-act="openChore" data-id="' + esc(c.id) + '"><span class="td-name"><span aria-hidden="true">' + ccatOf(c.category).em + '</span> ' + esc(c.name) + '</span><span class="td-sub">' + info.map(x => '<span>' + x + '</span>').join('') + '</span></button></div>';
+}
+function choreTodayHTML(){
+  const T = todayS(), w = chWho(), W = cweekStart(T);
+  let html = '';
+  const rules = gomiRules();
+  if (rules.length) {
+    const g0 = gomiOn(T), g1 = gomiOn(addD(T, 1));
+    html += '<button class="gomi-banner" data-act="chView" data-v="gomi"><span>🗑</span><span><b>きょう</b> ' + (g0.length ? gomiLabel(g0) : 'ゴミの日ではありません') + '<br><b>あした</b> ' + (g1.length ? gomiLabel(g1) : 'ゴミの日ではありません') + '</span></button>';
+  }
+  let any = false;
+  for (const b of CBUCKETS) {
+    const rows = [];
+    for (const c of cidx().chores) {
+      if (c.mode !== 'check' || !forWho(c, w)) continue;
+      const st = choreStatus(c, T);
+      if (st && st.b === b.k && st.show) rows.push({c, st});
+    }
+    if (!rows.length) continue;
+    any = true;
+    const done = rows.filter(r => r.st.done.length).length;
+    const sub = b.k === 'day' ? jp(T) : b.k === 'week' ? cmd(W) + '〜' + cmd(addD(W, 6)) : b.k === 'month' ? (pd(T).getMonth() + 1) + '月' : 'いまの時期';
+    html += '<section class="card td-card"><h2 class="td-h"><span>' + b.em + ' ' + b.label + '</span><small>' + sub + '</small><span class="cnt">' + done + ' / ' + rows.length + '</span></h2>'
+      + rows.map(r => todoRowHTML(r.c, r.st, w)).join('') + '</section>';
+  }
+  if (!any) html += '<div class="empty"><div class="em">🌿</div><h2>いまの目安になっている家事はありません</h2><p class="small">「一覧」から家事の頻度や担当を設定すると、ここに出てきます。</p></div>';
+  html += '<p class="note td-hint">○ をタップすると「やった」を記録します。家事の名前をタップすると、日付や人を変えて記録したり、編集したりできます。必要なときにやる家事（不定期）は「一覧」にあります。</p>'
+    + '<div style="text-align:center;margin-top:8px"><button class="btn sm" data-act="choreHist">📖 これまでの記録</button></div>';
+  return html;
+}
+function choreListHTML(){
+  const w = chWho(), T = todayS();
+  let body = '';
+  const all = cidx().chores;
+  if (!all.length) return '<div class="empty"><div class="em">🧹</div><h2>家事はまだありません</h2><p class="small">上の「＋ 追加」から登録できます。</p></div>';
+  for (const cat of CCATS) {
+    const list = all.filter(c => c.category === cat.k && (w === 'all' || forWho(c, w)));
+    if (!list.length) continue;
+    body += '<section class="card ch-card"><h2 class="ch-frame-h"><span>' + cat.em + ' ' + cat.label + '</span><span class="cnt">' + list.length + '件</span></h2>'
+      + (cat.k === 'seasonal' ? '<p class="note" style="margin:-2px 0 4px">大掃除の候補をまとめて確認できます。</p>' : '')
+      + list.map(c => {
+        const sub = [whoBadge(c.current_who)];
+        if (c.ideal_who !== c.current_who) sub.push('<span class="ch-ideal">理想：' + esc(whoName(c.ideal_who)) + '</span>');
+        sub.push(esc(freqText(c)) + (c.duration ? '・' + esc(c.duration) : ''));
+        if (c.actual_freq) sub.push('<span class="ch-ideal">実際：' + esc(c.actual_freq) + '</span>');
+        const l = lastLog(c.id);
+        if (c.mode !== 'check') sub.push('<span class="tag">やることに出さない</span>');
+        else if (c.freq === 'irregular') { if (l) sub.push('前回 ' + cmd(l.done_on)); }
+        else if ((c.months || []).length) sub.push(monthsText(c.months) + 'ごろ' + (l ? '・前回 ' + cmd0(l.done_on) : ''));
+        else if (l) { const due = choreNext(c, l.done_on); sub.push('前回 ' + cmd0(l.done_on) + (due ? '・次は ' + cmd0(due) + 'ごろ' : '')); }
+        else sub.push('まだ記録なし');
+        return '<div class="ch-row"><button class="ch-main" data-act="openChore" data-id="' + esc(c.id) + '"><span class="em" aria-hidden="true">' + cat.em + '</span><span style="min-width:0"><span class="ch-name">' + esc(c.name) + '</span><span class="ch-sub">' + sub.map(x => '<span>' + x + '</span>').join('') + '</span></span></button></div>';
+      }).join('') + '</section>';
+  }
+  return body || '<div class="empty"><div class="em">🔍</div><h2>この人が担当の家事はありません</h2></div>';
+}
+function gomiHTML(){
+  const T = todayS();
+  if (!S.ch.gm) S.ch.gm = monthStart(T);
+  const m0 = S.ch.gm, d0 = pd(m0), rules = gomiRules();
+  if (!S.gomiOk) return '<div class="empty"><div class="em">🗑</div><h2>ゴミの日のデータを読み込めませんでした</h2><p class="small">通信できるところで、アプリを開き直してください。</p></div>';
+  let html = '';
+  if (!rules.length) {
+    html += '<div class="card ch-card"><h2 class="ch-frame-h">🗑 ゴミの日を登録しましょう</h2><p class="note">住んでいる地域の収集日を、種類ごとに登録してください。カレンダーと「やること」の上、カレンダー画面のこむぎに出るようになります。</p>'
+      + '<div class="chips wrap" style="margin-top:8px">' + GOMI_KINDS.map(k => '<button class="chip" data-act="gomiNew" data-k="' + k[0] + '">' + k[2] + ' ' + k[1] + '</button>').join('') + '</div></div>';
+  } else {
+    const g0 = gomiOn(T), g1 = gomiOn(addD(T, 1));
+    html += '<div class="gomi-banner static"><span>🗑</span><span><b>きょう</b> ' + (g0.length ? gomiLabel(g0) : 'ゴミの日ではありません') + '<br><b>あした</b> ' + (g1.length ? gomiLabel(g1) : 'ゴミの日ではありません') + '</span></div>';
+  }
+  const start = addD(m0, -d0.getDay()), endM = monthEnd(m0), rowsN = Math.ceil((d0.getDay() + pd(endM).getDate()) / 7);
+  let cells = '';
+  for (let i = 0; i < rowsN * 7; i++) {
+    const s = addD(start, i), dd = pd(s), on = gomiOn(s), out = s.slice(0, 7) !== m0.slice(0, 7);
+    cells += '<div class="gm-cell' + (out ? ' out' : '') + (s === T ? ' today' : '') + (dd.getDay() === 0 ? ' sun' : dd.getDay() === 6 ? ' sat' : '') + '" aria-label="' + esc(jp(s) + (on.length ? '、' + on.map(r => r.name).join('・') : '')) + '"><span class="n">' + dd.getDate() + '</span><span class="g">' + on.slice(0, 3).map(r => gomiEm(r.kind)).join('') + '</span></div>';
+  }
+  html += '<section class="card ch-card"><div class="ch-nav" style="margin:0 0 6px"><button class="icon-btn" data-act="gomiMonth" data-n="-1" aria-label="前の月">' + IC.left + '</button><div class="ch-wl"><b>' + d0.getFullYear() + '年' + (d0.getMonth() + 1) + '月</b></div><button class="icon-btn" data-act="gomiMonth" data-n="1" aria-label="次の月">' + IC.right + '</button></div>'
+    + '<div class="gm-grid">' + WD.map((w, i) => '<span class="gm-dow' + (i === 0 ? ' sun' : i === 6 ? ' sat' : '') + '">' + w + '</span>').join('') + cells + '</div></section>';
+  if (rules.length) {
+    html += '<section class="card ch-card"><h2 class="ch-frame-h"><span>ゴミの種類と曜日</span><span class="cnt">' + rules.length + '件</span></h2>' + rules.map(r => {
+      const nx = gomiNext(r, T);
+      return '<div class="ch-row"><button class="ch-main" data-act="gomiEdit" data-id="' + esc(r.id) + '"><span class="em" aria-hidden="true">' + gomiEm(r.kind) + '</span><span style="min-width:0"><span class="ch-name">' + esc(r.name) + '</span><span class="ch-sub"><span>' + esc(gomiSched(r)) + '</span>' + (nx ? '<span>次は ' + (nx === T ? 'きょう' : nx === addD(T, 1) ? 'あした' : cmd(nx)) + '</span>' : '') + (r.memo ? '<span>' + esc(r.memo) + '</span>' : '') + '</span></span></button></div>';
+    }).join('') + '</section>';
+  }
+  return html;
 }
 function choresHTML(){
-  const cur = cweekStart(todayS());
-  if (!S.ch.wk) S.ch.wk = cur;
-  const whoChips = [['all', 'すべて']].concat(choreMembers().map(id => [id, nameOf(id)]), [['both', 'ふたり'], ['', '未設定']]);
-  const head = '<header class="top"><div class="page-head"><h1 class="page-title">家事</h1><span class="sp"></span>'
-    + '<div class="seg" role="group"><button data-act="chView" data-v="week" aria-pressed="' + (S.ch.view === 'week') + '">週間</button><button data-act="chView" data-v="list" aria-pressed="' + (S.ch.view === 'list') + '">一覧</button></div><button class="btn sm primary" data-act="choreNew" aria-label="家事を追加">＋ 追加</button></div>'
-    + '<div class="chips" role="group" aria-label="担当で絞り込み">' + whoChips.map(([v, l]) => '<button class="chip" data-act="chWho" data-v="' + esc(v) + '" aria-pressed="' + (S.ch.who === v) + '">' + esc(l) + '</button>').join('') + '</div></header>';
+  const view = ['today', 'list', 'gomi'].includes(S.ch.view) ? S.ch.view : 'today';
+  const w = chWho();
+  const add = view === 'gomi' ? '<button class="btn sm primary" data-act="gomiNew">＋ ゴミの日</button>' : '<button class="btn sm primary" data-act="choreNew" aria-label="家事を追加">＋ 家事</button>';
+  const head = '<header class="top"><div class="page-head"><h1 class="page-title">家事</h1><span class="sp"></span>' + add + '</div>'
+    + '<div class="seg wide" role="group" aria-label="表示">' + [['today', 'やること'], ['list', '一覧'], ['gomi', 'ゴミの日']].map(([v, l]) => '<button data-act="chView" data-v="' + v + '" aria-pressed="' + (view === v) + '">' + l + '</button>').join('') + '</div>'
+    + (view === 'gomi' ? '' : '<div class="chips" role="group" aria-label="だれの家事" style="margin-top:6px">' + choreMembers().map(id => [id, nameOf(id)]).concat([['all', 'ふたりとも']]).map(([v, l]) => '<button class="chip" data-act="chWho" data-v="' + esc(v) + '" aria-pressed="' + (w === v) + '">' + (v === 'all' ? '' : whoHTML(v, 'xs') + ' ') + esc(l) + '</button>').join('') + '</div>')
+    + '</header>';
   if (!S.loaded) return head + '<p class="muted small" style="padding:20px 4px">読み込んでいます…</p>';
+  if (view === 'gomi') return head + gomiHTML() + '<div style="height:16px"></div>';
   if (!S.choresOk) return head + '<div class="empty"><div class="em">🧺</div><h2>家事のデータを読み込めませんでした</h2><p class="small">通信できるところで、アプリを開き直してください。</p></div>';
-  const all = cidx().chores;
-  if (!all.length && !S.choreSeeds.has(choreSpace())) return head + '<p class="muted small" style="padding:20px 4px">はじめての家事一覧を準備しています…</p>';
-  let body = '';
-  if (S.ch.view === 'list') {
-    if (!all.length) body = '<div class="empty"><div class="em">🧹</div><h2>家事はまだありません</h2><p class="small">上の「＋ 追加」から登録できます。</p></div>';
-    for (const cat of CCATS) {
-      const list = all.filter(c => c.category === cat.k && whoFilterOk(c));
-      if (!list.length) continue;
-      body += '<section class="card ch-card"><h2 class="ch-frame-h"><span>' + cat.em + ' ' + cat.label + '</span><span class="cnt">' + list.length + '件</span></h2>'
-        + (cat.k === 'seasonal' ? '<p class="note" style="margin:-2px 0 4px">大掃除の候補をまとめて確認できます。ひとつずつ完了を記録できます。</p>' : '')
-        + list.map(c => choreRowHTML(c, {canDone: true})).join('') + '</section>';
-    }
-    if (all.length && !body) body = '<div class="empty"><div class="em">🔍</div><h2>この担当の家事はありません</h2></div>';
-  } else {
-    const W = S.ch.wk, diff = Math.round(daysBetween(cur, W) / 7);
-    const rel = diff === 0 ? '今週' : diff === -1 ? '先週' : diff === 1 ? '来週' : diff < 0 ? (-diff) + '週前' : diff + '週後';
-    body += '<div class="ch-nav"><button class="icon-btn" data-act="chWeek" data-n="-1" aria-label="前の週">' + IC.left + '</button>'
-      + '<div class="ch-wl"><b>' + rel + '</b><small>' + cmd(W) + ' 〜 ' + cmd(addD(W, 6)) + '</small></div>'
-      + '<button class="icon-btn" data-act="chWeek" data-n="1" aria-label="次の週">' + IC.right + '</button></div>'
-      + (diff ? '<div style="text-align:center;margin:-4px 0 6px"><button class="chip" data-act="chWeek" data-n="0">今週にもどる</button></div>' : '');
-    const {items, waiting} = weekChores(W);
-    const shown = items.filter(x => whoFilterOk(x.c));
-    const frames = choreFrames().filter(f => S.ch.who === 'all' || S.ch.who === f);
-    let any = false;
-    for (const f of frames) {
-      const list = shown.filter(x => frameOf(x.c) === f);
-      if (!list.length) continue;
-      any = true;
-      const done = list.filter(x => x.done.length).length;
-      body += '<section class="card ch-card"><h2 class="ch-frame-h">' + (f === 'both' ? '<i class="who who-both">ふたり</i><span>ふたりの家事</span>' : f ? whoHTML(f) + '<span>' + esc(nameOf(f)) + 'の家事</span>' : '<span>担当が未設定の家事</span>')
-        + '<span class="cnt">' + done + ' / ' + list.length + ' 完了</span></h2>' + list.map(x => choreRowHTML(x.c, {week: x})).join('') + '</section>';
-    }
-    if (!any) body += '<div class="empty" style="padding:24px 16px"><div class="em">🌿</div><h2>この週に目安が来ている家事はありません</h2><p class="small">チェック管理の家事は、完了を記録すると次の目安の週に出てきます。毎日の家事（固定表示）は「一覧」で確認できます。</p></div>';
-    const wait = waiting.filter(whoFilterOk);
-    if (wait.length) {
-      body += '<section class="card ch-card"><button class="ch-wait-h" data-act="chWait" aria-expanded="' + !!S.ch.waitOpen + '"><span>📝 記録待ち・不定期の家事</span><span class="cnt">' + wait.length + '件 ' + (S.ch.waitOpen ? '▲' : '▼') + '</span></button>'
-        + (S.ch.waitOpen ? '<p class="note" style="margin:6px 0 2px">まだ完了の記録がない家事と、不定期の家事です。やったら「完了」で記録すると、次からは目安の週に出てきます。</p>' + wait.map(c => choreRowHTML(c, {canDone: true})).join('') : '') + '</section>';
-    }
-  }
-  return head + body + '<div style="height:16px" aria-hidden="true"></div>';
+  if (!cidx().chores.length && !S.choreSeeds.has(choreSpace())) return head + '<p class="muted small" style="padding:20px 4px">はじめての家事一覧を準備しています…</p>';
+  return head + (view === 'list' ? choreListHTML() : choreTodayHTML()) + '<div style="height:16px" aria-hidden="true"></div>';
 }
 
 // 初めて家事画面を開いたときに、初期の30項目を1回だけ登録する（サーバー側で1スペース1回に限定）
@@ -2649,61 +2738,107 @@ async function ensureChoreSeed(){
     const W = {'じん': byName('じん'), 'あゆみ': byName('あゆみ'), 'ふたり': 'both'};
     const items = CHORE_SEED.map((x, i) => ({category: x[0], name: x[1], current_who: W[x[2]] || '', ideal_who: W[x[3]] || '', mode: x[4], freq: x[5], freq_n: x[6], freq_note: x[7], actual_freq: x[8], duration: x[9], memo: x[10], position: i + 1}));
     const {data, error} = await authedRpc('seed_chores', {p_space: sp, p_items: items});
-    if (!error) { S.choreSeeds.add(sp); if (data > 0) await refreshAll(); markDirty(); scheduleRender(); }
+    if (!error) {
+      S.choreSeeds.add(sp);
+      if (data > 0) {
+        await refreshAll();
+        CHORE_SEED.forEach(x => { if (x[11]) { const c = cidx().chores.find(y => y.name === x[1] && !(y.months || []).length); if (c) updateRow('chores', c.id, {months: x[11]}); } });
+      }
+      markDirty(); scheduleRender();
+    }
   } finally { choreSeedBusy = false; }
 }
 
 SHEETS.chore = sh => {
   const c = S.chores.get(sh.id);
   if (!c) return head('家事') + '<div class="sh-body"><p class="muted">この家事は削除されました。</p></div>';
-  const cat = ccatOf(c.category), logs = logsOf(c.id).slice().reverse(), l = logs[0], due = l ? choreNext(c, l.done_on) : null;
+  const cat = ccatOf(c.category), logs = logsOf(c.id).slice().reverse(), l = logs[0], T = todayS();
+  const st = c.mode === 'check' ? choreStatus(c, T) : null;
+  const doneToday = logs.some(x => x.done_on === T);
   const row = (k, v) => v ? '<dt>' + k + '</dt><dd>' + v + '</dd>' : '';
-  let body = '<p class="sub">' + cat.em + ' ' + cat.label + '・' + (c.mode === 'check' ? 'チェック管理' : '固定表示') + '</p><h2 class="r-title" style="margin-top:4px">' + esc(c.name) + '</h2>'
-    + '<dl class="ch-dl">' + row('現在の担当', esc(whoName(c.current_who))) + row('理想の担当', esc(whoName(c.ideal_who))) + row('理想の頻度', esc(freqText(c)))
-    + row('実際の頻度', esc(c.actual_freq)) + row('所要時間', esc(c.duration)) + row('メモ', esc(c.memo).replace(/\n/g, '<br>')) + '</dl>';
-  if (c.mode === 'check') {
-    body += '<div class="hint" style="margin-top:14px">' + (l ? '前回：' + cmd(l.done_on) + '・' + esc(whoName(l.done_by)) + '<br>次の目安：' + (due ? cmd(cweekStart(due)) + 'からの週' : '不定期のため目安はありません') : 'まだ完了の記録がありません。やったら記録すると、次の目安が出ます。') + '</div>'
-      + '<button class="btn primary block" style="margin-top:10px" data-act="choreDone" data-id="' + esc(c.id) + '">✓ 完了を記録</button>';
-    if (logs.length) body += '<h3 class="r-h">完了の記録</h3><ul class="ings">' + logs.slice(0, 20).map(x => '<li><button class="ch-log" data-act="clogEdit" data-id="' + esc(x.id) + '"><span>' + cmd(x.done_on) + '</span><span class="q">' + esc(whoName(x.done_by)) + ' ✎</span></button></li>').join('') + '</ul>';
-  }
+  let next = '';
+  if (c.mode !== 'check') next = '「やること」には出さない設定です（一覧だけに表示）。';
+  else if (c.freq === 'irregular') next = '必要なときにやる家事です。やったら記録しておけます。';
+  else if (st && st.season) next = monthsText(st.season) + 'ごろに「やること」に出ます。';
+  else if ((c.months || []).length) next = monthsText(c.months) + 'ごろに「やること」に出ます。';
+  else if (l) { const due = choreNext(c, l.done_on); next = !due ? '' : due <= T ? 'そろそろやりどきです（目安 ' + cmd(due) + 'ごろ）' : '次の目安：' + cmd(due) + 'ごろ'; }
+  else next = 'まだ記録がないので、いまの「やること」に出ています。';
+  let body = '<p class="sub">' + cat.em + ' ' + cat.label + '</p><h2 class="r-title" style="margin-top:4px">' + esc(c.name) + '</h2>'
+    + '<div class="row-gap" style="margin-top:12px"><button class="btn primary grow" data-act="choreTickNow" data-id="' + esc(c.id) + '"' + (doneToday ? ' disabled' : '') + '>' + (doneToday ? '✓ きょうは記録ずみ' : '✓ きょうやった') + '</button><button class="btn" data-act="choreDone" data-id="' + esc(c.id) + '">日付・人を選んで記録</button></div>'
+    + '<div class="hint" style="margin-top:12px">' + (l ? '前回：' + cmd(l.done_on) + '・' + esc(whoName(l.done_by)) + '<br>' : '') + esc(next) + '</div>'
+    + '<dl class="ch-dl">' + row('いまの担当', esc(whoName(c.current_who))) + row('理想の担当', esc(whoName(c.ideal_who))) + row('頻度（理想）', esc(freqText(c)))
+    + row('頻度（実際）', esc(c.actual_freq)) + row('時期', (c.months || []).length ? esc(monthsText(c.months)) : '') + row('所要時間', esc(c.duration)) + row('メモ', esc(c.memo).replace(/\n/g, '<br>')) + '</dl>';
+  if (logs.length) body += '<h3 class="r-h">やった記録</h3><ul class="ings">' + logs.slice(0, 20).map(x => '<li><button class="ch-log" data-act="clogEdit" data-id="' + esc(x.id) + '"><span>' + cmd(x.done_on) + '</span><span class="q">' + esc(whoName(x.done_by)) + ' ✎</span></button></li>').join('') + '</ul>';
   body += '<h3 class="r-h">🛒 買い物リストに追加</h3><div class="r1 ch-shop"><input class="in" id="cs-name" placeholder="例：洗濯槽クリーナー" data-enter="choreShop" autocomplete="off" enterkeyhint="done"><button class="btn" data-act="choreShop">追加</button></div>';
-  return head('家事') + '<div class="sh-body">' + body + '</div><div class="sh-foot"><button class="btn danger" data-act="choreDelete" data-id="' + esc(c.id) + '">削除</button><button class="btn primary grow" data-act="choreEdit" data-id="' + esc(c.id) + '">編集</button></div>';
+  return head('家事') + '<div class="sh-body">' + body + '</div><div class="sh-foot"><button class="btn danger" data-act="choreDelete" data-id="' + esc(c.id) + '">削除</button><button class="btn grow" data-act="choreEdit" data-id="' + esc(c.id) + '">編集</button></div>';
 };
 SHEETS.choreForm = sh => {
   const d = sh.draft;
   const whoSeg = f => '<div class="seg wide" role="group">' + choreMembers().map(id => [id, nameOf(id)]).concat([['both', 'ふたり'], ['', '未設定']]).map(([v, l]) => '<button data-act="cfWho" data-f="' + f + '" data-v="' + esc(v) + '" aria-pressed="' + (d[f] === v) + '">' + esc(l) + '</button>').join('') + '</div>';
   const needN = d.freq === 'days' || d.freq === 'months';
-  return head(sh.isNew ? '家事を追加' : '家事を編集') + '<div class="sh-body">'
+  const ms = (d.months || []).map(Number);
+  let html = head(sh.isNew ? '家事を追加' : '家事を編集') + '<div class="sh-body">'
     + '<div class="field"><label for="cf-name">家事名<em class="req">必須</em></label><input class="in" id="cf-name" value="' + esc(d.name) + '" maxlength="100" placeholder="例：ベランダ掃除" autocomplete="off"></div>'
     + '<p class="err" id="cf-err"' + (sh.err ? '' : ' hidden') + '>' + esc(sh.err || '') + '</p>'
     + '<div class="field"><span class="lbl">カテゴリー<em class="req">必須</em></span><div class="chips wrap">' + CCATS.map(c => '<button class="chip" data-act="cfCat" data-v="' + c.k + '" aria-pressed="' + (d.category === c.k) + '">' + c.em + ' ' + c.label + '</button>').join('') + '</div></div>'
-    + '<div class="field"><span class="lbl">管理方式</span><div class="seg wide" role="group"><button data-act="cfMode" data-v="fixed" aria-pressed="' + (d.mode === 'fixed') + '">固定表示</button><button data-act="cfMode" data-v="check" aria-pressed="' + (d.mode === 'check') + '">チェック管理</button></div>'
-    + '<p class="muted small">' + (d.mode === 'check' ? '完了を記録すると、前回の日付と頻度から次の目安の週に表示します。' : '担当や頻度を確認するための表示です。完了のチェックはしません。') + '</p></div>'
-    + '<div class="field"><span class="lbl">現在の担当</span>' + whoSeg('current_who') + '</div>'
-    + '<div class="field"><span class="lbl">理想の担当</span>' + whoSeg('ideal_who') + '</div>'
-    + '<div class="field"><label for="cf-freq">理想の頻度</label><div class="ch-freq"><select class="in" id="cf-freq" data-ch="cfFreq">' + CFREQ.map(([v, l]) => '<option value="' + v + '"' + (d.freq === v ? ' selected' : '') + '>' + l + '</option>').join('') + '</select>'
+    + '<div class="field"><span class="lbl">いまの担当</span>' + whoSeg('current_who') + '</div>'
+    + '<div class="field"><label for="cf-freq">どのくらいの頻度でやる？</label><div class="ch-freq"><select class="in" id="cf-freq" data-ch="cfFreq">' + CFREQ.map(([v, l]) => '<option value="' + v + '"' + (d.freq === v ? ' selected' : '') + '>' + l + '</option>').join('') + '</select>'
     + (needN ? '<span class="serv"><input class="in" id="cf-n" type="number" inputmode="numeric" min="1" max="366" value="' + esc(d.freq_n || 2) + '" aria-label="何' + (d.freq === 'days' ? '日' : 'か月') + 'ごと"><span>' + (d.freq === 'days' ? '日ごと' : 'か月ごと') + '</span></span>' : '') + '</div>'
-    + '<input class="in" id="cf-note" value="' + esc(d.freq_note) + '" maxlength="60" placeholder="書き方（任意）：例 週2〜3回、4〜7日に1回" autocomplete="off"></div>'
-    + '<div class="field"><label for="cf-actual">実際の頻度（任意・参考）</label><input class="in" id="cf-actual" value="' + esc(d.actual_freq) + '" maxlength="60" placeholder="例：約2週に1回" autocomplete="off"></div>'
-    + '<div class="field"><label for="cf-dur">所要時間（任意）</label><input class="in" id="cf-dur" value="' + esc(d.duration) + '" maxlength="40" placeholder="例：15分、20〜60分" autocomplete="off"></div>'
-    + '<div class="field"><label for="cf-memo">メモ（任意）</label><textarea class="in" id="cf-memo" rows="3" maxlength="1000">' + esc(d.memo) + '</textarea></div>'
-    + '</div><div class="sh-foot"><button class="btn primary block" data-act="cfSave"' + (sh.busy ? ' disabled' : '') + '>保存する</button></div>';
+    + '<p class="muted small">' + ({daily: '「きょうの家事」に毎日出ます。', days: '前回から日数がたつと「きょうの家事」に出ます。', weekly: '週に1回、「今週の家事」に出ます。', biweekly: '2週に1回、「今週の家事」に出ます。', monthly: '月に1回、「今月の家事」に出ます。', months: '前回から月数がたつと「今月の家事」に出ます。', yearly: '時期を決めると、その月に「季節の家事」に出ます。', twice_yearly: '時期を決めると、その月に「季節の家事」に出ます。', irregular: '「やること」には出ません。一覧から記録できます。'})[d.freq] + '</p></div>';
+  html += '<button class="link-btn" data-act="cfMore" aria-expanded="' + !!sh.more + '">' + (sh.more ? 'くわしい設定をとじる ▲' : 'くわしい設定（理想の担当・時期・時間など） ▼') + '</button>';
+  if (sh.more) {
+    html += '<div class="field"><span class="lbl">理想の担当</span>' + whoSeg('ideal_who') + '</div>'
+      + '<div class="field"><span class="lbl">時期（季節の家事など。選んだ月に「やること」に出ます）</span><div class="chips wrap">' + Array.from({length: 12}, (_, i) => i + 1).map(m => '<button class="chip" data-act="cfMonth" data-v="' + m + '" aria-pressed="' + ms.includes(m) + '">' + m + '月</button>').join('') + '</div></div>'
+      + '<div class="field"><label for="cf-note">頻度の書き方（任意）</label><input class="in" id="cf-note" value="' + esc(d.freq_note) + '" maxlength="60" placeholder="例：週2〜3回、4〜7日に1回" autocomplete="off"></div>'
+      + '<div class="field"><label for="cf-actual">実際の頻度（任意・参考）</label><input class="in" id="cf-actual" value="' + esc(d.actual_freq) + '" maxlength="60" placeholder="例：約2週に1回" autocomplete="off"></div>'
+      + '<div class="field"><label for="cf-dur">所要時間（任意）</label><input class="in" id="cf-dur" value="' + esc(d.duration) + '" maxlength="40" placeholder="例：15分、20〜60分" autocomplete="off"></div>'
+      + '<div class="field"><span class="lbl">「やること」に出す</span><div class="seg wide" role="group"><button data-act="cfMode" data-v="check" aria-pressed="' + (d.mode === 'check') + '">出す</button><button data-act="cfMode" data-v="fixed" aria-pressed="' + (d.mode === 'fixed') + '">出さない（一覧だけ）</button></div></div>'
+      + '<div class="field"><label for="cf-memo">メモ（任意）</label><textarea class="in" id="cf-memo" rows="3" maxlength="1000">' + esc(d.memo) + '</textarea></div>';
+  }
+  return html + '</div><div class="sh-foot"><button class="btn primary block" data-act="cfSave"' + (sh.busy ? ' disabled' : '') + '>保存する</button></div>';
 };
 SHEETS.clog = sh => {
   const c = S.chores.get(sh.choreId), l = sh.logId ? S.clogs.get(sh.logId) : null;
-  if (!c || (sh.logId && !l)) return head('完了の記録') + '<div class="sh-body"><p class="muted">この記録は削除されました。</p></div>';
+  if (!c || (sh.logId && !l)) return head('やった記録') + '<div class="sh-body"><p class="muted">この記録は削除されました。</p></div>';
   const opts = choreMembers().map(id => [id, nameOf(id)]).concat([['both', 'ふたり']]);
-  return head(l ? '記録を直す' : '完了を記録') + '<div class="sh-body"><p class="sub">' + ccatOf(c.category).em + ' ' + esc(c.name) + '</p>'
-    + '<div class="field"><span class="lbl">実施者</span><div class="seg wide" role="group">' + opts.map(([v, lb]) => '<button data-act="clWho" data-v="' + esc(v) + '" aria-pressed="' + (sh.who === v) + '">' + esc(lb) + '</button>').join('') + '</div></div>'
-    + '<div class="field"><label for="cl-date">実施日</label><input class="in" type="date" id="cl-date" value="' + esc(sh.date) + '" max="' + todayS() + '" data-fresh></div>'
-    + '<p class="muted small">実施日を直すと、次の目安も計算し直します。</p><p class="err" id="cl-err" hidden></p></div>'
+  return head(l ? '記録を直す' : 'やったことを記録') + '<div class="sh-body"><p class="sub">' + ccatOf(c.category).em + ' ' + esc(c.name) + '</p>'
+    + '<div class="field"><span class="lbl">やった人</span><div class="seg wide" role="group">' + opts.map(([v, lb]) => '<button data-act="clWho" data-v="' + esc(v) + '" aria-pressed="' + (sh.who === v) + '">' + esc(lb) + '</button>').join('') + '</div></div>'
+    + '<div class="field"><label for="cl-date">やった日</label><input class="in" type="date" id="cl-date" value="' + esc(sh.date) + '" max="' + todayS() + '" data-fresh></div>'
+    + '<p class="muted small">日付を直すと、次の目安も計算し直します。</p><p class="err" id="cl-err" hidden></p></div>'
     + '<div class="sh-foot">' + (l ? '<button class="btn danger" data-act="clDelete">削除</button>' : '') + '<button class="btn primary grow" data-act="clSave"' + (sh.busy ? ' disabled' : '') + '>' + (l ? '保存する' : '記録する') + '</button></div>';
+};
+SHEETS.choreHist = sh => {
+  const W = sh.wk, E = addD(W, 6), cur = cweekStart(todayS()), diff = Math.round(daysBetween(cur, W) / 7);
+  const rel = diff === 0 ? '今週' : diff === -1 ? '先週' : diff < 0 ? (-diff) + '週前' : diff + '週後';
+  const logs = [...S.clogs.values()].filter(l => l.space_id === choreSpace() && l.done_on >= W && l.done_on <= E && S.chores.has(l.chore_id)).sort((a, b) => b.done_on.localeCompare(a.done_on) || String(b.created_at).localeCompare(String(a.created_at)));
+  let body = '<div class="ch-nav"><button class="icon-btn" data-act="histWeek" data-n="-1" aria-label="前の週">' + IC.left + '</button><div class="ch-wl"><b>' + rel + '</b><small>' + cmd(W) + ' 〜 ' + cmd(E) + '</small></div><button class="icon-btn" data-act="histWeek" data-n="1" aria-label="次の週"' + (W >= cur ? ' disabled' : '') + '>' + IC.right + '</button></div>';
+  if (!logs.length) body += '<p class="muted small" style="text-align:center;padding:20px 0">この週の記録はありません。</p>';
+  let lastD = '';
+  logs.forEach(l => {
+    const c = S.chores.get(l.chore_id);
+    if (l.done_on !== lastD) { body += '<h3 class="cat-h">' + cmd(l.done_on) + '</h3>'; lastD = l.done_on; }
+    body += '<div class="ch-row"><button class="ch-main" data-act="clogEdit" data-id="' + esc(l.id) + '"><span class="em" aria-hidden="true">' + ccatOf(c.category).em + '</span><span style="min-width:0"><span class="ch-name">' + esc(c.name) + '</span><span class="ch-sub"><span>' + whoBadge(l.done_by) + '</span></span></span></button></div>';
+  });
+  return head('これまでの記録') + '<div class="sh-body">' + body + '</div>';
+};
+SHEETS.gomiForm = sh => {
+  const d = sh.draft, wd = d.weekdays, nth = d.nth;
+  return head(sh.isNew ? 'ゴミの日を追加' : 'ゴミの日を編集') + '<div class="sh-body">'
+    + '<div class="field"><span class="lbl">種類</span><div class="chips wrap">' + GOMI_KINDS.map(k => '<button class="chip" data-act="gfKind" data-v="' + k[0] + '" aria-pressed="' + (d.kind === k[0]) + '">' + k[2] + ' ' + k[1] + '</button>').join('') + '</div></div>'
+    + '<div class="field"><label for="gf-name">名前<em class="req">必須</em></label><input class="in" id="gf-name" value="' + esc(d.name) + '" maxlength="40" autocomplete="off" placeholder="例：燃えるゴミ"></div>'
+    + '<div class="field"><span class="lbl">曜日<em class="req">必須</em></span><div class="chips wrap gf-wd">' + WD.map((w, i) => '<button class="chip" data-act="gfDay" data-v="' + i + '" aria-pressed="' + wd.includes(i) + '">' + w + '</button>').join('') + '</div></div>'
+    + '<div class="field"><span class="lbl">週</span><div class="seg wide" role="group"><button data-act="gfNth" data-v="0" aria-pressed="' + !nth + '">毎週</button><button data-act="gfNth" data-v="1" aria-pressed="' + !!nth + '">第◯週だけ</button></div>'
+    + (nth ? '<div class="chips wrap" style="margin-top:6px">' + [1, 2, 3, 4, 5].map(n => '<button class="chip" data-act="gfWeek" data-v="' + n + '" aria-pressed="' + d.weeks.includes(n) + '">第' + n + '</button>').join('') + '</div>' : '') + '</div>'
+    + '<div class="field"><label for="gf-memo">メモ（任意）</label><input class="in" id="gf-memo" value="' + esc(d.memo) + '" maxlength="200" autocomplete="off" placeholder="例：朝8時までに出す"></div>'
+    + '<p class="err" id="gf-err"' + (sh.err ? '' : ' hidden') + '>' + esc(sh.err || '') + '</p>'
+    + '</div><div class="sh-foot">' + (sh.isNew ? '' : '<button class="btn danger" data-act="gomiDelete">削除</button>') + '<button class="btn primary grow" data-act="gfSave"' + (sh.busy ? ' disabled' : '') + '>保存する</button></div>';
 };
 function openChoreForm(c){
   const sp = choreSpace();
-  const draft = c ? {name: c.name, category: c.category, mode: c.mode, current_who: c.current_who, ideal_who: c.ideal_who, freq: c.freq, freq_n: c.freq_n, freq_note: c.freq_note, actual_freq: c.actual_freq, duration: c.duration, memo: c.memo}
-    : {name: '', category: '', mode: 'check', current_who: '', ideal_who: '', freq: 'weekly', freq_n: null, freq_note: '', actual_freq: '', duration: '', memo: ''};
-  openSheet('choreForm', {tall: true, static: true, isNew: !c, id: c ? c.id : uuid(), space: c ? c.space_id : sp, draft});
+  const draft = c ? {name: c.name, category: c.category, mode: c.mode, current_who: c.current_who, ideal_who: c.ideal_who, freq: c.freq, freq_n: c.freq_n, freq_note: c.freq_note, actual_freq: c.actual_freq, duration: c.duration, memo: c.memo, months: (c.months || []).map(Number)}
+    : {name: '', category: '', mode: 'check', current_who: chWho() === 'all' ? '' : chWho(), ideal_who: '', freq: 'weekly', freq_n: null, freq_note: '', actual_freq: '', duration: '', memo: '', months: []};
+  if (!c) draft.ideal_who = draft.current_who;
+  openSheet('choreForm', {tall: true, static: true, isNew: !c, id: c ? c.id : uuid(), space: c ? c.space_id : sp, draft, more: false});
 }
 function collectCF(sh){
   const v = id => { const n = document.getElementById(id); return n ? n.value : null; };
@@ -2711,30 +2846,45 @@ function collectCF(sh){
   [['cf-name', 'name'], ['cf-note', 'freq_note'], ['cf-actual', 'actual_freq'], ['cf-dur', 'duration'], ['cf-memo', 'memo'], ['cf-freq', 'freq']].forEach(([id, k]) => { if (v(id) != null) d[k] = v(id); });
   if (v('cf-n') != null) d.freq_n = parseInt(String(v('cf-n')).normalize('NFKC'), 10) || null;
 }
+function openGomiForm(r, kind){
+  const k = GOMI_KINDS.find(x => x[0] === (r ? r.kind : kind)) || GOMI_KINDS[0];
+  const draft = r ? {kind: r.kind, name: r.name, weekdays: (r.weekdays || []).map(Number), weeks: (r.weeks || []).map(Number), nth: (r.weeks || []).length > 0, memo: r.memo || ''}
+    : {kind: k[0], name: k[1], weekdays: [], weeks: [], nth: false, memo: ''};
+  openSheet('gomiForm', {static: true, isNew: !r, id: r ? r.id : uuid(), draft});
+}
+const collectGF = sh => { const n = document.getElementById('gf-name'), m = document.getElementById('gf-memo'); if (n) sh.draft.name = n.value; if (m) sh.draft.memo = m.value; };
+const toggleIn = (a, v) => a.includes(v) ? a.filter(x => x !== v) : a.concat([v]).sort((x, y) => x - y);
+const tickBusy = new Set();
+function recordChore(c, who, date){
+  const id = uuid();
+  insertRow('chore_logs', {id, space_id: c.space_id, chore_id: c.id, done_on: date, done_by: who || ''});
+  return id;
+}
 Object.assign(A, {
-  chView: el => { S.ch.view = el.dataset.v === 'list' ? 'list' : 'week'; lsSet('chView', S.ch.view); render(); },
-  chWho: el => { S.ch.who = el.dataset.v; render(); },
-  chWeek: el => { const n = +el.dataset.n; S.ch.wk = n ? addD(S.ch.wk || cweekStart(todayS()), 7 * n) : cweekStart(todayS()); render(); },
-  chWait: () => { S.ch.waitOpen = !S.ch.waitOpen; render(); },
+  chView: el => { S.ch.view = ['today', 'list', 'gomi'].includes(el.dataset.v) ? el.dataset.v : 'today'; lsSet('chView', S.ch.view); render(); window.scrollTo(0, 0); },
+  chWho: el => { S.ch.who = el.dataset.v; lsSet('chWho', S.ch.who); render(); },
   openChore: el => { if (S.chores.has(el.dataset.id)) openSheet('chore', {id: el.dataset.id, tall: true}); },
   choreNew: () => openChoreForm(null),
   choreEdit: el => { const c = S.chores.get(el.dataset.id); if (c) openChoreForm(c); },
   cfCat: el => { const sh = topSheet(); collectCF(sh); sh.draft.category = el.dataset.v; sh.err = ''; refreshSheet(sh); },
   cfMode: el => { const sh = topSheet(); collectCF(sh); sh.draft.mode = el.dataset.v === 'check' ? 'check' : 'fixed'; refreshSheet(sh); },
-  cfWho: el => { const sh = topSheet(); collectCF(sh); sh.draft[el.dataset.f === 'ideal_who' ? 'ideal_who' : 'current_who'] = el.dataset.v; refreshSheet(sh); },
+  cfWho: el => { const sh = topSheet(); collectCF(sh); const f = el.dataset.f === 'ideal_who' ? 'ideal_who' : 'current_who'; if (f === 'current_who' && !sh.more && sh.draft.ideal_who === sh.draft.current_who) sh.draft.ideal_who = el.dataset.v; sh.draft[f] = el.dataset.v; refreshSheet(sh); },
+  cfMonth: el => { const sh = topSheet(); collectCF(sh); sh.draft.months = toggleIn(sh.draft.months || [], +el.dataset.v); refreshSheet(sh); },
+  cfMore: () => { const sh = topSheet(); collectCF(sh); sh.more = !sh.more; refreshSheet(sh); },
   cfSave: () => {
     const sh = topSheet();
     if (!sh || sh.type !== 'choreForm' || sh.busy) return;
     collectCF(sh);
     const d = sh.draft, name = String(d.name || '').trim();
-    const bad = m => { sh.err = m; refreshSheet(sh); };
+    const bad = m => { sh.err = m; refreshSheet(sh); const n = document.getElementById('cf-err'); if (n) n.scrollIntoView({block: 'center'}); };
     if (!name) return bad('家事名を入力してください');
     if (!CCATS.some(c => c.k === d.category)) return bad('カテゴリーを選んでください');
     const needN = d.freq === 'days' || d.freq === 'months';
     if (needN && !(d.freq_n >= 1 && d.freq_n <= 366)) return bad('何' + (d.freq === 'days' ? '日' : 'か月') + 'ごとかを数字で入力してください');
-    const row = {name: name.slice(0, 100), category: d.category, mode: d.mode === 'check' ? 'check' : 'fixed', current_who: d.current_who || '', ideal_who: d.ideal_who || '',
+    const row = {name: name.slice(0, 100), category: d.category, mode: d.mode === 'fixed' ? 'fixed' : 'check', current_who: d.current_who || '', ideal_who: d.ideal_who || '',
       freq: CFREQ.some(f => f[0] === d.freq) ? d.freq : 'weekly', freq_n: needN ? d.freq_n : null, freq_note: String(d.freq_note || '').trim().slice(0, 60),
-      actual_freq: String(d.actual_freq || '').trim().slice(0, 60), duration: String(d.duration || '').trim().slice(0, 40), memo: String(d.memo || '').trim().slice(0, 1000)};
+      actual_freq: String(d.actual_freq || '').trim().slice(0, 60), duration: String(d.duration || '').trim().slice(0, 40), memo: String(d.memo || '').trim().slice(0, 1000),
+      months: (d.months || []).map(Number).filter(m => m >= 1 && m <= 12)};
     sh.busy = true;
     if (sh.isNew) insertRow('chores', Object.assign({id: sh.id, space_id: sh.space, position: cidx().chores.reduce((m, c) => Math.max(m, c.position || 0), 0) + 1}, row));
     else updateRow('chores', sh.id, row);
@@ -2743,7 +2893,7 @@ Object.assign(A, {
   },
   choreDelete: el => {
     const c = S.chores.get(el.dataset.id); if (!c) return;
-    openConfirm('家事を削除', '「' + c.name + '」を削除します。完了の記録も消えます。元には戻せません。', [
+    openConfirm('家事を削除', '「' + c.name + '」を削除します。やった記録も消えます。元には戻せません。', [
       {label: '削除する', cls: 'danger', fn: () => {
         S.sheets.filter(s => (s.type === 'chore' && s.id === c.id) || (s.type === 'clog' && s.choreId === c.id)).forEach(s => closeSheet(s.sid));
         S.clogs.forEach((l, id) => { if (l.chore_id === c.id) S.clogs.delete(id); });
@@ -2752,7 +2902,31 @@ Object.assign(A, {
       {label: 'やめる', cls: 'ghost'}
     ]);
   },
-  choreDone: el => { const c = S.chores.get(el.dataset.id); if (c) openSheet('clog', {static: true, choreId: c.id, logId: null, who: S.uid, date: todayS()}); },
+  // ○ をタップ：きょう「やった」を記録。チェック済みなら、きょうの記録は取り消し、前の日の記録は直す画面を開く
+  choreTick: el => {
+    const c = S.chores.get(el.dataset.id);
+    if (!c || tickBusy.has(c.id)) return;
+    tickBusy.add(c.id); setTimeout(() => tickBusy.delete(c.id), 700);
+    const T = todayS(), st = choreStatus(c, T), done = st && st.done.length ? st.done[st.done.length - 1] : null;
+    if (done) {
+      if (done.done_on !== T) { openSheet('clog', {static: true, choreId: c.id, logId: done.id, who: done.done_by, date: done.done_on}); return; }
+      const before = strip(done);
+      deleteRows('chore_logs', [done.id]);
+      toast('「' + c.name + '」のチェックを外しました', {undo: () => insertRow('chore_logs', before)});
+      return;
+    }
+    const w = chWho(), who = w !== 'all' ? w : S.uid;
+    const id = recordChore(c, who, T);
+    toast('「' + c.name + '」やったね！', {undo: () => deleteRows('chore_logs', [id])});
+  },
+  choreTickNow: el => {
+    const c = S.chores.get(el.dataset.id);
+    if (!c || tickBusy.has(c.id) || logsOf(c.id).some(l => l.done_on === todayS())) return;
+    tickBusy.add(c.id); setTimeout(() => tickBusy.delete(c.id), 700);
+    const id = recordChore(c, chWho() !== 'all' ? chWho() : S.uid, todayS());
+    toast('「' + c.name + '」やったね！', {undo: () => deleteRows('chore_logs', [id])});
+  },
+  choreDone: el => { const c = S.chores.get(el.dataset.id); if (c) openSheet('clog', {static: true, choreId: c.id, logId: null, who: chWho() !== 'all' ? chWho() : S.uid, date: todayS()}); },
   clogEdit: el => { const l = S.clogs.get(el.dataset.id); if (l) openSheet('clog', {static: true, choreId: l.chore_id, logId: l.id, who: l.done_by, date: l.done_on}); },
   clWho: el => { const sh = topSheet(); const n = document.getElementById('cl-date'); if (n) sh.date = n.value; sh.who = el.dataset.v; refreshSheet(sh); },
   clSave: () => {
@@ -2760,14 +2934,14 @@ Object.assign(A, {
     if (!sh || sh.type !== 'clog' || sh.busy) return;
     const n = document.getElementById('cl-date'), date = n ? n.value : sh.date, c = S.chores.get(sh.choreId);
     const er = document.getElementById('cl-err');
-    if (!validDate(date) || date > todayS()) { if (er) { er.textContent = '実施日は今日までの日付を選んでください'; er.hidden = false; } return; }
+    if (!validDate(date) || date > todayS()) { if (er) { er.textContent = 'やった日は、きょうまでの日付を選んでください'; er.hidden = false; } return; }
     if (!c) { closeSheet(sh.sid); return; }
     sh.busy = true;
     if (sh.logId) updateRow('chore_logs', sh.logId, {done_on: date, done_by: sh.who || ''});
-    else insertRow('chore_logs', {id: uuid(), space_id: c.space_id, chore_id: c.id, done_on: date, done_by: sh.who || ''});
+    else recordChore(c, sh.who, date);
     closeSheet(sh.sid);
-    const l = lastLog(c.id), due = l ? choreNext(c, l.done_on) : null;
-    toast((sh.logId ? '記録を直しました' : '記録しました') + (due ? '（次の目安：' + cmd(cweekStart(due)).replace(/（.）/, '') + 'の週）' : ''));
+    const l = lastLog(c.id), due = l && c.mode === 'check' ? choreNext(c, l.done_on) : null;
+    toast((sh.logId ? '記録を直しました' : '記録しました') + (due && !(c.months || []).length ? '（次の目安：' + cmd0(due) + 'ごろ）' : ''));
   },
   clDelete: () => {
     const sh = topSheet(); const l = sh && S.clogs.get(sh.logId);
@@ -2777,6 +2951,8 @@ Object.assign(A, {
     deleteRows('chore_logs', [l.id]);
     toast('記録を削除しました', {undo: () => insertRow('chore_logs', before)});
   },
+  choreHist: () => openSheet('choreHist', {tall: true, wk: cweekStart(todayS())}),
+  histWeek: el => { const sh = topSheet(); if (!sh || sh.type !== 'choreHist') return; const n = +el.dataset.n, cur = cweekStart(todayS()); sh.wk = addD(sh.wk, 7 * n); if (sh.wk > cur) sh.wk = cur; refreshSheet(sh); },
   choreShop: () => {
     const sh = S.sheets.slice().reverse().find(s => s.type === 'chore'), inp = document.getElementById('cs-name');
     const name = inp ? inp.value.trim() : '';
@@ -2789,6 +2965,37 @@ Object.assign(A, {
     insertRow('shopping_items', {id: uuid(), space_id: S.cur, name: name.slice(0, 200), qty: '', unit: '', category: cat, checked: false, source: {type: 'chore', chore_id: c ? c.id : null}});
     inp.value = '';
     toast('「' + name + '」を買い物リストに追加しました');
+  },
+  gomiMonth: el => { const d = pd(S.ch.gm || monthStart(todayS())); S.ch.gm = ds(new Date(d.getFullYear(), d.getMonth() + (+el.dataset.n), 1)); render(); },
+  gomiNew: el => openGomiForm(null, el.dataset.k || 'burnable'),
+  gomiEdit: el => { const r = S.gomi.get(el.dataset.id); if (r) openGomiForm(r); },
+  gfKind: el => { const sh = topSheet(); collectGF(sh); const old = GOMI_KINDS.find(k => k[0] === sh.draft.kind), nk = GOMI_KINDS.find(k => k[0] === el.dataset.v); if (!sh.draft.name.trim() || (old && sh.draft.name === old[1])) sh.draft.name = nk[1]; sh.draft.kind = nk[0]; refreshSheet(sh); },
+  gfDay: el => { const sh = topSheet(); collectGF(sh); sh.draft.weekdays = toggleIn(sh.draft.weekdays, +el.dataset.v); sh.err = ''; refreshSheet(sh); },
+  gfNth: el => { const sh = topSheet(); collectGF(sh); sh.draft.nth = el.dataset.v === '1'; refreshSheet(sh); },
+  gfWeek: el => { const sh = topSheet(); collectGF(sh); sh.draft.weeks = toggleIn(sh.draft.weeks, +el.dataset.v); sh.err = ''; refreshSheet(sh); },
+  gfSave: () => {
+    const sh = topSheet();
+    if (!sh || sh.type !== 'gomiForm' || sh.busy) return;
+    collectGF(sh);
+    const d = sh.draft, name = d.name.trim();
+    const bad = m => { sh.err = m; refreshSheet(sh); };
+    if (!name) return bad('名前を入力してください');
+    if (!d.weekdays.length) return bad('曜日を選んでください');
+    if (d.nth && !d.weeks.length) return bad('第何週かを選んでください');
+    const row = {kind: d.kind, name: name.slice(0, 40), weekdays: d.weekdays, weeks: d.nth ? d.weeks : [], memo: d.memo.trim().slice(0, 200)};
+    sh.busy = true;
+    if (sh.isNew) insertRow('garbage_rules', Object.assign({id: sh.id, space_id: choreSpace(), position: gomiRules().reduce((m, r) => Math.max(m, r.position || 0), 0) + 1}, row));
+    else updateRow('garbage_rules', sh.id, row);
+    closeSheet(sh.sid);
+    toast(sh.isNew ? 'ゴミの日を追加しました' : '変更を保存しました');
+  },
+  gomiDelete: () => {
+    const sh = topSheet(); const r = sh && S.gomi.get(sh.id);
+    if (!r) return;
+    const before = strip(r);
+    closeSheet(sh.sid);
+    deleteRows('garbage_rules', [r.id]);
+    toast('「' + r.name + '」を削除しました', {undo: () => insertRow('garbage_rules', before)});
   }
 });
 Object.assign(C, {

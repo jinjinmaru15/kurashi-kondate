@@ -672,6 +672,66 @@ begin
 end $$;
 
 -- =====================================================================
+-- 家事の時期・ゴミの日（v2.6）。表と項目を足すだけ。何度実行しても大丈夫
+--   chores.months … その月に目安に出す（季節の家事など）。1〜12、空なら頻度だけで決める
+--   garbage_rules … ゴミの収集日（曜日と、第何週か。週が空なら毎週）
+-- =====================================================================
+alter table public.chores add column if not exists months smallint[] not null default '{}';
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'chores_months_check' and conrelid = 'public.chores'::regclass) then
+    alter table public.chores add constraint chores_months_check check (months <@ array[1,2,3,4,5,6,7,8,9,10,11,12]::smallint[]);
+  end if;
+end $$;
+
+create table if not exists public.garbage_rules (
+  id         uuid primary key default gen_random_uuid(),
+  space_id   uuid not null references public.spaces(id) on delete cascade,
+  kind       text not null default 'other' check (kind in ('burnable','nonburnable','plastic','bottles','paper','bulky','other')),
+  name       text not null check (char_length(name) between 1 and 40),
+  weekdays   smallint[] not null default '{}' check (weekdays <@ array[0,1,2,3,4,5,6]::smallint[]),
+  weeks      smallint[] not null default '{}' check (weeks <@ array[1,2,3,4,5]::smallint[]),
+  memo       text not null default '' check (char_length(memo) <= 200),
+  position   int not null default 0,
+  created_by uuid references auth.users(id) on delete set null,
+  updated_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists garbage_rules_space_idx on public.garbage_rules(space_id);
+
+do $$ begin
+  if not exists (select 1 from pg_trigger where tgname = 'audit' and tgrelid = 'public.garbage_rules'::regclass) then
+    create trigger audit before insert or update on public.garbage_rules for each row execute function public.tg_audit();
+  end if;
+end $$;
+
+revoke all on table public.garbage_rules from anon, authenticated;
+grant select, insert, update, delete on public.garbage_rules to authenticated;
+alter table public.garbage_rules enable row level security;
+
+do $$
+declare p text;
+begin
+  foreach p in array array['member_select','member_insert','member_update','member_remove'] loop
+    if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'garbage_rules' and policyname = p) then
+      execute case p
+        when 'member_select' then 'create policy member_select on public.garbage_rules for select to authenticated using (public.is_member(space_id))'
+        when 'member_insert' then 'create policy member_insert on public.garbage_rules for insert to authenticated with check (public.is_member(space_id))'
+        when 'member_update' then 'create policy member_update on public.garbage_rules for update to authenticated using (public.is_member(space_id)) with check (public.is_member(space_id))'
+        else 'create policy member_remove on public.garbage_rules for delete to authenticated using (public.is_member(space_id))'
+      end;
+    end if;
+  end loop;
+end $$;
+
+do $$ begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
+     and not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'garbage_rules') then
+    alter publication supabase_realtime add table public.garbage_rules;
+  end if;
+end $$;
+
+-- =====================================================================
 -- オプション：「ふたりのスペースから抜ける」「メンバーを外す」
 -- 使うときだけ、この下を SQL Editor で実行してください。
 -- =====================================================================
