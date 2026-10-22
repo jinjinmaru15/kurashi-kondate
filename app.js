@@ -6,7 +6,7 @@
 'use strict';
 
 const CFG = window.KONDATE_CONFIG || {};
-const APP_VERSION = '2.3';
+const APP_VERSION = '2.4';
 
 /* ---------- utils ---------- */
 const $ = (s, r) => (r || document).querySelector(s);
@@ -114,9 +114,9 @@ const COLORS = [['rose','ローズ'],['sky','ブルー'],['sage','グリーン']
 const CAT_WORDS = [
   ['豆腐・加工食品', '豆腐 油揚げ 油あげ 厚揚げ 納豆 ちくわ かまぼこ はんぺん さつま揚げ ハム ベーコン ソーセージ ウインナー こんにゃく しらたき 春雨 ツナ 缶 麩 キムチ 漬物 冷凍 練り物'],
   ['卵・乳製品', '卵 たまご 玉子 牛乳 チーズ バター ヨーグルト 生クリーム ミルク 豆乳'],
-  ['調味料', '醤油 しょうゆ 味噌 みそ 砂糖 塩 こしょう 胡椒 みりん 料理酒 酒 酢 油 だし 出汁 コンソメ ケチャップ マヨネーズ ソース 鶏ガラ 顆粒 片栗粉 小麦粉 薄力粉 強力粉 パン粉 ポン酢 めんつゆ 白だし オイスター 豆板醤 コチュジャン 甜麺醤 ごま はちみつ スパイス カレー粉 ルウ ルー 中華だし チューブ'],
-  ['肉・魚', '肉 豚 牛 鶏 ひき ミンチ 鮭 さけ 魚 さば 鯖 あじ 鯵 いわし ぶり たら 鱈 まぐろ 刺身 えび 海老 いか たこ あさり しじみ しらす ほたて ささみ 手羽 レバー かに'],
-  ['野菜', '野菜 キャベツ 玉ねぎ たまねぎ 玉葱 にんじん 人参 じゃがいも じゃが芋 ねぎ 葱 大根 ほうれん草 小松菜 もやし ピーマン なす 茄子 トマト きゅうり レタス ブロッコリー かぼちゃ ごぼう れんこん しめじ えのき しいたけ 椎茸 まいたけ エリンギ きのこ にんにく しょうが 生姜 白菜 水菜 にら ニラ 大葉 しそ 三つ葉 パプリカ アボカド オクラ いんげん 枝豆 さつまいも 里芋 長芋 山芋 セロリ みょうが ズッキーニ 豆苗 チンゲン菜 春菊 レモン りんご バナナ いちご みかん 果物 パセリ バジル 貝割れ かいわれ'],
+  ['調味料', '醤油 しょうゆ 味噌 みそ 砂糖 塩 こしょう 胡椒 みりん 料理酒 酒 酢 油 だし 出汁 コンソメ ケチャップ マヨネーズ ソース 鶏ガラ 顆粒 片栗粉 小麦粉 薄力粉 強力粉 パン粉 ポン酢 めんつゆ 白だし オイスター 豆板醤 コチュジャン 甜麺醤 ごま はちみつ スパイス カレー粉 ルウ ルー 中華だし チューブ わさび からし マスタード ナンプラー ドレッシング'],
+  ['肉・魚', '肉 豚 牛 鶏 ひき ミンチ 鮭 さけ 魚 さば 鯖 あじ 鯵 いわし ぶり たら 鱈 まぐろ 刺身 えび 海老 いか たこ あさり しじみ しらす ほたて ささみ 手羽 レバー かに サーモン さんま かつお ほっけ たらこ 明太子 うなぎ ちりめん'],
+  ['野菜', '野菜 キャベツ 玉ねぎ たまねぎ 玉葱 にんじん 人参 じゃがいも じゃが芋 ねぎ 葱 大根 ほうれん草 小松菜 もやし ピーマン なす 茄子 トマト きゅうり レタス ブロッコリー かぼちゃ ごぼう れんこん しめじ えのき しいたけ 椎茸 まいたけ エリンギ きのこ にんにく しょうが 生姜 白菜 水菜 にら ニラ 大葉 しそ 三つ葉 パプリカ アボカド オクラ いんげん 枝豆 さつまいも 里芋 長芋 山芋 セロリ みょうが ズッキーニ 豆苗 チンゲン菜 春菊 アスパラ カリフラワー とうもろこし コーン ししとう スナップえんどう さやえんどう ゴーヤ かぶ レモン りんご バナナ いちご みかん 果物 パセリ バジル 貝割れ かいわれ'],
   ['日用品', 'ティッシュ 洗剤 ラップ ホイル ペーパー シャンプー リンス 石けん 石鹸 電池 ゴミ袋 ごみ袋 スポンジ トイレ 歯ブラシ 歯磨き マスク 柔軟剤 保存袋']
 ].map(([c, w]) => [c, w.split(' ').map(norm)]);
 function guessCat(name){
@@ -1039,6 +1039,7 @@ SHEETS.dish = sh => {
       body += '<div class="r-actions" style="grid-template-columns:1fr 1fr">'
         + '<button class="r-act" data-act="openRecipe" data-id="' + esc(r.id) + '"><span class="ic">📖</span>レシピを開く</button>'
         + '<button class="r-act" data-act="markMade" data-id="' + esc(r.id) + '" data-date="' + di.date + '" aria-pressed="' + made + '"><span class="ic">🍳</span>' + (made ? 'この日に作った' : 'この日に作った記録') + '</button></div>'
+        + ((r.ingredients || []).some(i => i.name && !isIngHeader(i)) ? '<button class="btn block" style="margin-top:12px" data-act="dishToShop">🛒 買い物リストへ追加</button>' : '')
         + recipeBodyHTML(r);
     } else {
       body += '<div class="hint" style="margin-top:14px">この料理はまだレシピに登録されていません。登録すると、材料・作り方・参考URLをここから確認でき、買い物リストにも材料を集められます。</div>'
@@ -1229,42 +1230,52 @@ function genSummaryHTML(a, b){
   return '<b>' + jp(a) + ' 〜 ' + jp(b) + '</b>（' + rangeDays(a, b) + '日間）<br>料理 ' + dishes + '品のうち、材料が登録されているのは ' + withIng + '品です。';
 }
 function collectRange(a, b){
-  const rows = new Map(), missing = new Map();
+  const recs = [], missing = new Map();
   for (let s = a; s <= b; s = addD(s, 1)) {
     for (const di of dayDishes(idx().days.get(s))) {
       const r = resolve(di);
-      const ings = ((r && r.ingredients) || []).filter(i => i.name && String(i.name).trim() && !isIngHeader(i));
-      if (!ings.length) { missing.set(norm(di.name), di.name); continue; }
-      for (const ig of ings) {
-        const unit = normUnit(ig.unit), nm = cleanIng(ig.name) || String(ig.name).trim();
-        const key = normIng(nm) + '|' + unit;
-        let row = rows.get(key);
-        if (!row) { row = {name: nm, unit, nums: [], texts: [], dishes: new Set(), category: guessCat(nm)}; rows.set(key, row); }
-        const n = parseQty(ig.qty);
-        const raw = String(ig.qty || '').trim();
-        if (n != null) row.nums.push(n); else if (raw && !row.texts.includes(raw)) row.texts.push(raw);
-        row.dishes.add(r.name);
-      }
+      if (!((r && r.ingredients) || []).some(i => i.name && String(i.name).trim() && !isIngHeader(i))) { missing.set(norm(di.name), di.name); continue; }
+      recs.push(r);
+    }
+  }
+  return {rows: shopRowsFrom(recs), missing: [...missing.values()]};
+}
+// レシピの材料 → 買い物リストの候補。同じ材料・同じ単位は合計。リストにある商品（未購入）と同じ名前なら dup をつける
+function shopRowsFrom(recs){
+  const rows = new Map();
+  for (const r of recs) {
+    const ings = ((r && r.ingredients) || []).filter(i => i.name && String(i.name).trim() && !isIngHeader(i));
+    for (const ig of ings) {
+      const unit = normUnit(ig.unit), nm = cleanIng(ig.name) || String(ig.name).trim();
+      const key = normIng(nm) + '|' + unit;
+      let row = rows.get(key);
+      if (!row) { row = {name: nm, unit, nums: [], raws: [], texts: [], dishes: new Set(), category: guessCat(nm)}; rows.set(key, row); }
+      const n = parseQty(ig.qty);
+      const raw = String(ig.qty || '').trim();
+      if (n != null) { row.nums.push(n); row.raws.push(raw); } else if (raw && !row.texts.includes(raw)) row.texts.push(raw);
+      row.dishes.add(r.name);
     }
   }
   const existing = curShop().filter(i => !i.checked);
   const list = [...rows.values()].map(r => {
-    const qty = [r.nums.length ? fmtNum(r.nums.reduce((x, y) => x + y, 0)) : ''].concat(r.texts).filter(Boolean).join('＋');
+    const qty = [r.nums.length === 1 ? r.raws[0] : r.nums.length ? fmtNum(r.nums.reduce((x, y) => x + y, 0)) : ''].concat(r.texts).filter(Boolean).join('＋');
     const row = {name: r.name, unit: r.unit, qty, category: r.category, dishes: [...r.dishes]};
     const ex = existing.find(i => normIng(i.name) === normIng(r.name));
     if (ex) row.dup = {id: ex.id, label: (ex.name + ' ' + qtyLabel(ex.qty, ex.unit)).trim()};
     return row;
   });
   list.sort((x, y) => SCATS.indexOf(x.category) - SCATS.indexOf(y.category) || x.name.localeCompare(y.name, 'ja'));
-  return {rows: list, missing: [...missing.values()]};
+  return list;
 }
+// 合算できるのは、どちらの数量も数として読めて、単位が同じときだけ
+const canMergeQty = (ex, qty, unit) => !!ex && normUnit(ex.unit) === normUnit(unit) && parseQty(ex.qty) != null && parseQty(qty) != null;
 function genStep2HTML(sh){
-  const rows = sh.rows;
-  let body = '<p class="sub">' + jp(sh.from) + ' 〜 ' + jp(sh.to) + '</p>';
+  const rows = sh.rows, one = !!sh.recipeName;
+  let body = '<p class="sub">' + (one ? '「' + esc(sh.recipeName) + '」（' + jp(sh.from) + '）の材料' : jp(sh.from) + ' 〜 ' + jp(sh.to)) + '</p>';
   if (!rows.length) {
     body += '<div class="empty" style="padding:24px 8px"><div class="em">🥕</div><h2>集められる材料がありません</h2><p class="small">この期間の献立に、材料が登録されたレシピがありません。</p></div>';
   } else {
-    body += '<p class="muted small" style="margin-top:6px">追加しないものはチェックを外してください。数量や単位も直せます。同じ材料・同じ単位は合計済みです。</p>';
+    body += '<p class="muted small" style="margin-top:6px">' + (one ? '買うものにチェックを入れてください。数量・単位・カテゴリーは買い物用に直せます（レシピの材料は変わりません）。' : '追加しないものはチェックを外してください。数量や単位も直せます。同じ材料・同じ単位は合計済みです。') + '</p>';
     let lastCat = '';
     rows.forEach((r, i) => {
       if (r.category !== lastCat) { body += '<h3 class="cat-h">' + SEMOJI[r.category] + ' ' + r.category + '</h3>'; lastCat = r.category; }
@@ -1272,13 +1283,15 @@ function genStep2HTML(sh){
         + '<div class="gf"><input class="in" id="g-name-' + i + '" value="' + esc(r.name) + '" aria-label="材料名">'
         + '<div class="gq"><input class="in" id="g-qty-' + i + '" value="' + esc(r.qty) + '" aria-label="数量" placeholder="数量"><input class="in" id="g-unit-' + i + '" value="' + esc(r.unit) + '" list="unit-list" aria-label="単位" placeholder="単位">'
         + '<select class="in" id="g-cat-' + i + '" aria-label="カテゴリー">' + SCATS.map(c => '<option value="' + c + '"' + (c === r.category ? ' selected' : '') + '>' + c + '</option>').join('') + '</select></div>'
-        + '<div class="gsrc">使う料理：' + esc(r.dishes.join('、')) + '</div>'
-        + (r.dup ? '<div class="gdup"><span>⚠️ リストにすでにあります：' + esc(r.dup.label) + '</span><select class="in" id="g-dup-' + i + '" aria-label="重複したときの扱い"><option value="skip">追加しない</option><option value="merge">リストの数量に合算する</option><option value="add">別の行で追加する</option></select></div>' : '')
+        + (one ? '' : '<div class="gsrc">使う料理：' + esc(r.dishes.join('、')) + '</div>')
+        + (r.dup ? '<div class="gdup" id="g-dupbox-' + i + '"><span>⚠️ リストにすでにあります：' + esc(r.dup.label) + (canMergeQty(S.shop.get(r.dup.id), r.qty, r.unit) ? '' : '<br>数量か単位がちがうので、合算はできません') + '</span><select class="in" id="g-dup-' + i + '" aria-label="重複したときの扱い"><option value="">どうするか選んでください</option>'
+          + (canMergeQty(S.shop.get(r.dup.id), r.qty, r.unit) ? '<option value="merge">合算する</option>' : '') + '<option value="add">別々に追加する</option><option value="skip">追加しない（キャンセル）</option></select></div>' : '')
         + '</div></div>';
     });
   }
   if (sh.missing.length) body += '<div class="missing">材料が登録されていない料理：' + esc(sh.missing.join('、')) + '<br>レシピに材料を登録すると、次回から自動で集められます。</div>';
-  return head('材料の確認') + '<div class="sh-body" id="gen-b">' + body + '</div><div class="sh-foot"><button class="btn" data-act="genBack">戻る</button>'
+  body += '<p class="err" id="g-err" role="alert" hidden></p>';
+  return head(one ? '買い物リストへ追加' : '材料の確認') + '<div class="sh-body" id="gen-b">' + body + '</div><div class="sh-foot">' + (one ? '<button class="btn" data-act="closeTop">キャンセル</button>' : '<button class="btn" data-act="genBack">戻る</button>')
     + (rows.length ? '<button class="btn primary grow" data-act="genAdd">買い物リストに追加</button>' : '') + '</div>';
 }
 
@@ -2175,6 +2188,12 @@ const A = {
     openSheet('gen', {static: true, tall: true, step: 1, from, to});
   },
   genPreset: el => { const sh = topSheet(); sh.from = el.dataset.a; sh.to = el.dataset.b; $('#g-from').value = sh.from; $('#g-to').value = sh.to; $('#g-sum').innerHTML = genSummaryHTML(sh.from, sh.to); },
+  dishToShop: () => {
+    const d = topSheet(), di = d && d.type === 'dish' ? S.meals.get(d.id) : null, r = di ? resolve(di) : null;
+    if (!r) return;
+    const rows = shopRowsFrom([r]); rows.forEach(x => { x.off = true; }); // 最初はすべて未選択
+    openSheet('gen', {static: true, tall: true, step: 2, rows, missing: [], recipeName: r.name, recipeId: r.id, from: di.date, to: di.date});
+  },
   genCollect: () => {
     const sh = topSheet();
     sh.from = $('#g-from').value; sh.to = $('#g-to').value;
@@ -2187,6 +2206,24 @@ const A = {
   genBack: () => { const sh = topSheet(); sh.step = 1; const w = document.querySelector('#sheets [data-sid="' + sh.sid + '"] .sheet-inner'); if (w) w.innerHTML = SHEETS.gen(sh); },
   genAdd: () => {
     const sh = topSheet();
+    if (!sh || sh.type !== 'gen' || sh.step !== 2 || sh.busy) return;
+    const fail = (msg, i) => {
+      const er = document.getElementById('g-err'); if (er) { er.textContent = msg; er.hidden = false; }
+      const box = i != null && (document.getElementById('g-dupbox-' + i) || document.getElementById('g-row-' + i));
+      if (box) box.classList.add('need');
+      (box || er) && (box || er).scrollIntoView({block: 'center', behavior: 'smooth'});
+      toast(msg);
+    };
+    const picked = sh.rows.map((r, i) => i).filter(i => { const c = document.getElementById('g-inc-' + i); return c && c.checked && document.getElementById('g-name-' + i).value.trim(); });
+    if (!picked.length) return fail('買い物リストに入れる材料にチェックを入れてください');
+    for (const i of picked) {
+      const r = sh.rows[i], sel = document.getElementById('g-dup-' + i);
+      if (!r.dup || !sel) continue;
+      if (!sel.value) return fail('「' + r.name + '」はリストにすでにあります。合算するか、別々に追加するか、追加しないかを選んでください', i);
+      if (sel.value === 'merge' && S.shop.get(r.dup.id) && !canMergeQty(S.shop.get(r.dup.id), document.getElementById('g-qty-' + i).value.trim(), document.getElementById('g-unit-' + i).value))
+        return fail('「' + r.name + '」は数量か単位がリストの商品とちがうので、合算できません。「別々に追加する」か「追加しない」を選んでください', i);
+    }
+    sh.busy = true;
     let merged = 0;
     const adds = [];
     sh.rows.forEach((r, i) => {
@@ -2202,20 +2239,15 @@ const A = {
       if (r.dup && act === 'skip') return;
       if (r.dup && act === 'merge') {
         const ex = S.shop.get(r.dup.id);
-        if (ex) {
-          const a = parseQty(ex.qty), b = parseQty(qty), sameUnit = normUnit(ex.unit) === unit;
-          let p;
-          if (sameUnit && a != null && b != null) p = {qty: fmtNum(a + b)};
-          else if (qty) p = {qty: [ex.qty ? ex.qty + (ex.unit && !sameUnit ? ex.unit : '') : '', qty + (!sameUnit ? unit : '')].filter(Boolean).join('＋').slice(0, 40), unit: sameUnit ? ex.unit : ''};
-          if (p) updateRow('shopping_items', ex.id, p);
-          merged++; return;
-        }
+        if (canMergeQty(ex, qty, unit)) { updateRow('shopping_items', ex.id, {qty: fmtNum(parseQty(ex.qty) + parseQty(qty))}); merged++; return; }
       }
-      adds.push({id: uuid(), space_id: S.cur, name, qty: qty.slice(0, 40), unit: unit.slice(0, 20), category: SCATS.includes(category) ? category : guessCat(name), checked: false, source: {type: 'meals', from: sh.from, to: sh.to}});
+      adds.push({id: uuid(), space_id: S.cur, name, qty: qty.slice(0, 40), unit: unit.slice(0, 20), category: SCATS.includes(category) ? category : guessCat(name), checked: false,
+        source: sh.recipeId ? {type: 'recipe', recipe_id: sh.recipeId, date: sh.from} : {type: 'meals', from: sh.from, to: sh.to}});
     });
     insertRows('shopping_items', adds);
     closeSheet(sh.sid);
-    if (S.tab !== 'shop') switchTab('shop'); else render();
+    // 献立の料理から開いたときは、その画面に戻る（ほかの料理も続けて追加できる）
+    if (sh.recipeId) render(); else if (S.tab !== 'shop') switchTab('shop'); else render();
     const added = adds.length;
     toast(added + merged ? (added ? added + '件を追加' : '') + (added && merged ? '、' : '') + (merged ? merged + '件を合算' : '') + 'しました' : '追加するものはありませんでした');
   },
