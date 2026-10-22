@@ -63,7 +63,7 @@ create table if not exists public.recipes (
   name        text not null check (char_length(name) between 1 and 200),
   category    text not null default 'その他' check (category in ('主菜','副菜','汁物','鍋','麺類','お菓子','その他')),
   ingredients jsonb not null default '[]'::jsonb check (jsonb_typeof(ingredients) = 'array'),
-  servings    int check (servings between 1 and 99),
+  servings    text check (servings is null or char_length(servings) <= 20),  -- 「2」「2〜3」など
   steps       text not null default '' check (char_length(steps) <= 20000),
   url         text not null default '' check (url = '' or url ~* '^https?://'),
   memo        text not null default '' check (char_length(memo) <= 5000),
@@ -124,7 +124,8 @@ create table if not exists public.events (
   updated_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  check ((kind = 'shift' and type in ('day','evening','night','off','other'))
+  constraint events_check check (
+         (kind = 'shift' and type in ('day','evening','night','a','c','e','h','iri','ake','off','other'))
       or (kind = 'plan'  and type in ('out','shopping','chores','custom')))
 );
 create index if not exists events_space_date_idx on public.events(space_id, date);
@@ -152,6 +153,24 @@ create table if not exists public.user_settings (
   data       jsonb not null default '{}'::jsonb check (jsonb_typeof(data) = 'object'),
   updated_at timestamptz not null default now()
 );
+
+-- ---------------------------------------------------------------------
+-- 以前の版からの更新（データは消さずに、ルールだけ広げる。何度実行しても大丈夫）
+-- ---------------------------------------------------------------------
+-- v2.3: 勤務区分に A・C・E・H・入り・明け を追加
+alter table public.events drop constraint if exists events_check;
+alter table public.events add constraint events_check check (
+     (kind = 'shift' and type in ('day','evening','night','a','c','e','h','iri','ake','off','other'))
+  or (kind = 'plan'  and type in ('out','shopping','chores','custom')));
+-- v2.3: 「何人分」を文字で保存（今ある数字は "2" のような文字として残る）
+do $$ begin
+  if (select data_type from information_schema.columns
+      where table_schema = 'public' and table_name = 'recipes' and column_name = 'servings') = 'integer' then
+    alter table public.recipes drop constraint if exists recipes_servings_check;
+    alter table public.recipes alter column servings type text using servings::text;
+    alter table public.recipes add constraint recipes_servings_check check (servings is null or char_length(servings) <= 20);
+  end if;
+end $$;
 
 -- ---------------------------------------------------------------------
 -- 判定用の関数（RLS から使う）

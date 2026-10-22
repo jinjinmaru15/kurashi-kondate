@@ -6,7 +6,7 @@
 'use strict';
 
 const CFG = window.KONDATE_CONFIG || {};
-const APP_VERSION = '2.2.1';
+const APP_VERSION = '2.3';
 
 /* ---------- utils ---------- */
 const $ = (s, r) => (r || document).querySelector(s);
@@ -50,6 +50,10 @@ function parseQty(q){
   return null;
 }
 const fmtNum = n => String(Math.round(n * 100) / 100);
+// 「大さじ」「小さじ」「カップ」は数量の前に書く（大さじ1と1/2）
+const qtyLabel = (q, u) => { q = String(q == null ? '' : q).trim(); u = String(u || '').trim(); return /^(大さじ|小さじ|カップ)$/.test(u.normalize('NFKC')) && /^[\d０-９約]/.test(q) ? u + q : q + u; };
+// 何人分：文字のまま保存する（「2〜3」「1.5」など）。末尾の「人分」は重ねない
+const servText = v => String(v == null ? '' : v).normalize('NFKC').replace(/~/g, '〜').replace(/\s*(人分|人前|人)\s*$/, '').trim().slice(0, 20);
 const UNIT_MAP = {'グラム':'g','cc':'ml','ミリリットル':'ml','リットル':'l','キロ':'kg','キログラム':'kg'};
 function normUnit(u){
   let s = String(u || '').normalize('NFKC').trim();
@@ -87,6 +91,12 @@ const SHIFTS = [
   {k:'day', label:'日勤', short:'日'},
   {k:'evening', label:'準夜勤', short:'準'},
   {k:'night', label:'深夜勤', short:'深'},
+  {k:'a', label:'A', short:'A'},
+  {k:'c', label:'C', short:'C'},
+  {k:'e', label:'E', short:'E'},
+  {k:'h', label:'H', short:'H'},
+  {k:'iri', label:'入り', short:'入'},
+  {k:'ake', label:'明け', short:'明'},
   {k:'off', label:'休み', short:'休'},
   {k:'other', label:'その他', short:'他'}
 ];
@@ -115,7 +125,9 @@ function guessCat(name){
   for (const [c, words] of CAT_WORDS) if (words.some(w => n.includes(w))) return c;
   return 'その他';
 }
-const shiftOf = k => SHIFTS.find(s => s.k === k) || SHIFTS[4];
+const shiftOf = k => SHIFTS.find(s => s.k === k) || SHIFTS[SHIFTS.length - 1];
+// 月表示の凡例にいつも出す勤務（ほかは、その月に入っているときだけ出す）
+const BASE_SHIFTS = ['day', 'evening', 'night', 'off'];
 const planOf = k => PLANS.find(p => p.k === k) || PLANS[3];
 const evLabel = e => e.kind === 'shift'
   ? (e.type === 'other' ? (e.title || 'その他') : shiftOf(e.type).label)
@@ -713,12 +725,14 @@ function monthHTML(sel){
   const start = ds(new Date(y, mo, 1 - off));
   const t = todayS(), shared = hasShared();
   let cells = '';
+  const usedSh = new Set();
   for (let i = 0; i < rows * 7; i++) {
     const s = addD(start, i), dd = pd(s), dow = dd.getDay();
     const day = idx().days.get(s);
     const evs = day ? sortEvents(day.events) : [];
     const shifts = evs.filter(e => e.kind === 'shift');
     const plans = evs.filter(e => e.kind === 'plan');
+    shifts.forEach(e => usedSh.add(e.type));
     let dishes = dayDishes(day);
     if (S.settings.monthMeals === 'main') dishes = dishes.filter(x => x.slot === 'main');
     const cls = ['cell', dd.getMonth() !== mo && 'out', s === t && 'today', s === sel && 'sel', dow === 0 && 'sun', dow === 6 && 'sat', i >= (rows - 1) * 7 && 'last'].filter(Boolean).join(' ');
@@ -733,7 +747,7 @@ function monthHTML(sel){
       + shown + '</button>';
   }
   const dow = Array.from({length: 7}, (_, i) => { const w = (ws + i) % 7; return '<span class="' + (w === 0 ? 'sun' : w === 6 ? 'sat' : '') + '">' + WD[w] + '</span>'; }).join('');
-  let legend = SHIFTS.slice(0, 4).map(s => '<span><i class="sb sh-' + s.k + '">' + s.short + '</i>' + s.label + '</span>').join('')
+  let legend = SHIFTS.filter(s => BASE_SHIFTS.includes(s.k) || (s.k !== 'other' && usedSh.has(s.k))).map(s => '<span><i class="sb sh-' + s.k + '">' + s.short + '</i>' + s.label + '</span>').join('')
     + PLANS.slice(0, 3).map(p => '<span><i class="pd pl-' + p.k + '"></i>' + p.label + '</span>').join('');
   if (shared) {
     const pid = partnerId();
@@ -830,12 +844,13 @@ function sugHTML(slot, q){
 
 /* ---------- recipes ---------- */
 function recipeList(){
-  const q = norm(S.rq.text);
+  const q = norm(S.rq.text), qi = normIng(S.rq.text);
   let list = curRecipes().slice();
   if (S.rq.filter === 'fav') list = list.filter(r => r.favorite);
   else if (S.rq.filter === 'want') list = list.filter(r => !r.made);
   if (S.rq.cat !== 'all') list = list.filter(r => r.category === S.rq.cat);
-  if (q) list = list.filter(r => norm(r.name).includes(q) || norm(r.memo).includes(q) || (r.ingredients || []).some(i => norm(i.name).includes(q)));
+  // 料理名・メモ・材料名のどれかに一致したら表示（同じレシピは1回だけ）。表記ゆれは ING_ALIAS に足せば検索にも効く
+  if (q) list = list.filter(r => norm(r.name).includes(q) || normIng(r.name).includes(qi) || norm(r.memo).includes(q) || (r.ingredients || []).some(i => normIng(i.name).includes(qi)));
   list.sort((a, b) => (q ? ((norm(a.name).includes(q) ? 0 : 1) - (norm(b.name).includes(q) ? 0 : 1)) : 0) || String(b.created_at || '').localeCompare(String(a.created_at || '')));
   return list;
 }
@@ -878,7 +893,7 @@ function shopHTML(){
     const ex = S.shop.get(S.shopDup.exId);
     if (ex) {
       const canMerge = normUnit(ex.unit) === normUnit(S.shopDup.unit) && parseQty(ex.qty) != null && parseQty(S.shopDup.qty) != null;
-      dup = '<div class="dupbox" role="alert"><p>「' + esc(ex.name) + '」はすでにリストにあります（' + esc(((ex.qty || '') + (ex.unit || '')) || '数量なし') + '）。どうしますか？</p><div class="row">'
+      dup = '<div class="dupbox" role="alert"><p>「' + esc(ex.name) + '」はすでにリストにあります（' + esc(qtyLabel(ex.qty, ex.unit) || '数量なし') + '）。どうしますか？</p><div class="row">'
         + (canMerge ? '<button class="btn sm primary" data-act="shopDupMerge">数量をまとめる</button>' : '')
         + '<button class="btn sm" data-act="shopDupAdd">別の行で追加</button><button class="btn sm ghost" data-act="shopDupCancel">やめる</button></div></div>';
     }
@@ -905,7 +920,7 @@ function shopHTML(){
   return head + add + dup + body;
 }
 function itemHTML(i){
-  const q = ((i.qty || '') + (i.unit || '')).trim();
+  const q = qtyLabel(i.qty, i.unit);
   const by = i.checked && hasShared() && i.checked_by ? '<span class="checked-by">' + whoHTML(i.checked_by, 'xs') + '</span>' : '';
   return '<div class="item' + (i.checked ? ' done' : '') + '"><button class="chk" role="checkbox" aria-checked="' + !!i.checked + '" aria-label="' + esc(i.name) + 'を' + (i.checked ? '未購入に戻す' : '購入済みにする') + '" data-act="toggleItem" data-id="' + esc(i.id) + '"><span>✓</span></button>'
     + '<button class="item-main" data-act="editItem" data-id="' + esc(i.id) + '"><span class="iname">' + esc(i.name) + by + '</span>' + (q ? '<span class="iqty">' + esc(q) + '</span>' : '') + '</button></div>';
@@ -1048,9 +1063,9 @@ function recipeBodyHTML(r){
   let steps = '';
   if (r.steps && r.steps.trim()) {
     const lines = r.steps.split('\n').map(s => s.trim()).filter(Boolean);
-    steps = lines.length > 1 ? '<ol>' + lines.map(l => '<li>' + esc(l.replace(/^(\d+[.)．、]\s*|[①-⑳]\s*)/, '')) + '</li>').join('') + '</ol>' : '<p>' + esc(lines[0]) + '</p>';
+    steps = lines.length > 1 ? '<ol>' + lines.map((l, i) => '<li>' + esc(l.replace(/^\d+[.)．、]\s*/, '').replace(/^[①-⑳]\s*/, c => c.trim().charCodeAt(0) - 0x245F === i + 1 ? '' : c)) + '</li>').join('') + '</ol>' : '<p>' + esc(lines[0]) + '</p>';
   }
-  return (ings.length ? '<h3 class="r-h">材料' + (r.servings ? '<small>（' + esc(r.servings) + '人分）</small>' : '') + '</h3><ul class="ings">' + ings.map(i => '<li><span>' + esc(i.name) + '</span><span class="q">' + esc((i.qty || '') + (i.unit || '')) + '</span></li>').join('') + '</ul>' : '')
+  return (ings.length ? '<h3 class="r-h">材料' + (servText(r.servings) ? '<small>（' + esc(servText(r.servings)) + '人分）</small>' : '') + '</h3><ul class="ings">' + ings.map(i => isIngHeader(i) ? '<li class="ing-h"><span>' + esc(i.name) + '</span></li>' : '<li><span>' + esc(i.name) + '</span><span class="q">' + esc(qtyLabel(i.qty, i.unit)) + '</span></li>').join('') + '</ul>' : '')
     + (steps ? '<h3 class="r-h">作り方</h3><div class="steps">' + steps + '</div>' : '')
     + (url ? '<h3 class="r-h">参考URL</h3><a class="url-card" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer"><b>' + esc(src || 'リンク') + '</b><span class="u">' + esc(url) + '</span>' + IC.ext + '</a>' : '')
     + (r.memo ? '<h3 class="r-h">メモ</h3><p class="memo">' + esc(r.memo) + '</p>' : '')
@@ -1065,7 +1080,7 @@ SHEETS.recipe = sh => {
   const by = hasShared() && r.created_by && r.space_id === S.sharedId ? '<p class="made-note">' + esc(nameOf(r.created_by)) + 'が登録' + (r.updated_by && r.updated_by !== r.created_by ? '・' + esc(nameOf(r.updated_by)) + 'が最後に編集' : '') + '</p>' : '';
   return head('', {}) + '<div class="sh-body" id="rcp-b">'
     + '<div class="r-hero">' + (photo ? '<img src="' + esc(photo) + '" alt="' + esc(r.name) + 'の写真">' : (REMOJI[r.category] || '🍽️')) + '</div>'
-    + '<h2 class="r-title">' + esc(r.name) + '</h2><div class="tags">' + recipeTags(r) + (r.servings ? '<span class="tag">' + esc(r.servings) + '人分</span>' : '') + '</div>'
+    + '<h2 class="r-title">' + esc(r.name) + '</h2><div class="tags">' + recipeTags(r) + (servText(r.servings) ? '<span class="tag">' + esc(servText(r.servings)) + '人分</span>' : '') + '</div>'
     + '<div class="r-actions">'
     + '<button class="r-act" data-act="toggleFav" data-id="' + esc(r.id) + '" aria-pressed="' + !!r.favorite + '"><span class="ic">' + (r.favorite ? '★' : '☆') + '</span>お気に入り</button>'
     + '<button class="r-act" data-act="markMade" data-id="' + esc(r.id) + '" data-date="' + t + '" aria-pressed="' + md.includes(t) + '"><span class="ic">🍳</span>' + (md.includes(t) ? '今日作った' : '作った！') + '</button>'
@@ -1083,6 +1098,8 @@ SHEETS.recipeForm = sh => {
   const urlField = '<div class="field"><label for="rf-url">参考URL' + (quick ? '<em class="req">必須</em>' : '') + '</label><input class="in" id="rf-url" type="url" inputmode="url" value="' + esc(d.url || '') + '" placeholder="https://www.instagram.com/…" autocomplete="off"></div>';
   let html = head(sh.isNew ? (quick ? 'URLだけ保存' : 'レシピを登録') : 'レシピを編集') + '<div class="sh-body" id="rf-b">';
   if (quick) html += '<p class="hint">Instagram・TikTok・YouTube などのURLと料理名だけで保存できます。材料や作り方はあとから追加できます。</p>' + urlField;
+  else html += '<button class="menu-opt" style="margin-bottom:4px" data-act="rfPaste"><span class="em">📋</span><span><b>文章から一括入力</b><small>コピーしたレシピの文章を貼り付けると、材料や作り方に振り分けます</small></span></button>'
+    + (sh.pasteNote ? '<p class="hint" role="status" style="margin-top:8px">' + esc(sh.pasteNote) + '</p>' : '');
   html += '<div class="field"><label for="rf-name">料理名<em class="req">必須</em></label><input class="in" id="rf-name" value="' + esc(d.name || '') + '" placeholder="例：鶏むね肉のレモン照り焼き" autocomplete="off"></div>'
     + '<p class="err" id="rf-err"' + (sh.err ? '' : ' hidden') + '>' + esc(sh.err || '') + '</p>'
     + '<div class="field"><span class="lbl">カテゴリー</span><div class="chips wrap">' + RCATS.map(c => '<button class="chip" data-act="rfCat" data-c="' + c + '" aria-pressed="' + (d.category === c) + '">' + REMOJI[c] + ' ' + c + '</button>').join('') + '</div></div>';
@@ -1091,7 +1108,7 @@ SHEETS.recipeForm = sh => {
       + (d.thumb ? '<span class="pv"><img src="' + esc(d.thumb) + '" alt="選んだ写真"></span>' : '')
       + '<div class="row-gap"><label class="photo-add" for="rf-photo">📷 ' + (d.thumb ? '写真を変える' : '写真を追加') + '</label>' + (d.thumb ? '<button class="btn sm ghost text-danger" data-act="rfPhotoDel">写真を外す</button>' : '') + '</div>'
       + '<input type="file" id="rf-photo" accept="image/*" data-ch="rfPhoto" hidden></div>' + (sh.photoBusy ? '<p class="muted small">写真を準備しています…</p>' : '') + '</div>'
-      + '<div class="field"><label for="rf-serv">何人分</label><div class="serv"><input class="in" id="rf-serv" type="number" inputmode="numeric" min="1" max="20" value="' + esc(d.servings || '') + '"><span>人分</span></div></div>'
+      + '<div class="field"><label for="rf-serv">何人分</label><div class="serv"><input class="in" id="rf-serv" value="' + esc(d.servings == null ? '' : d.servings) + '" placeholder="2〜3" maxlength="20" autocomplete="off"><span>人分</span></div></div>'
       + '<div class="field"><span class="lbl">材料</span><div class="ing-head" aria-hidden="true"><span>材料名</span><span>数量</span><span>単位</span><span></span></div><div class="ings-edit">'
       + d.ingredients.map(g => '<div class="ing" id="ing-' + g.id + '"><input class="in" id="rf-in-' + g.id + '" value="' + esc(g.name) + '" placeholder="例：玉ねぎ" aria-label="材料名" autocomplete="off"><input class="in" id="rf-iq-' + g.id + '" value="' + esc(g.qty) + '" placeholder="1/2" aria-label="数量" autocomplete="off"><input class="in" id="rf-iu-' + g.id + '" value="' + esc(g.unit) + '" list="unit-list" placeholder="個" aria-label="単位" autocomplete="off"><button class="icon-btn sm" data-act="rfDelIng" data-k="' + g.id + '" aria-label="この材料を削除">' + IC.x + '</button></div>').join('')
       + '</div><button class="btn sm" style="justify-self:start;margin-top:4px" data-act="rfAddIng">＋ 材料を追加</button><p class="muted small">同じ材料・同じ単位は、買い物リスト作成のときに合計されます。</p></div>'
@@ -1216,13 +1233,13 @@ function collectRange(a, b){
   for (let s = a; s <= b; s = addD(s, 1)) {
     for (const di of dayDishes(idx().days.get(s))) {
       const r = resolve(di);
-      const ings = ((r && r.ingredients) || []).filter(i => i.name && String(i.name).trim());
+      const ings = ((r && r.ingredients) || []).filter(i => i.name && String(i.name).trim() && !isIngHeader(i));
       if (!ings.length) { missing.set(norm(di.name), di.name); continue; }
       for (const ig of ings) {
-        const unit = normUnit(ig.unit);
-        const key = normIng(ig.name) + '|' + unit;
+        const unit = normUnit(ig.unit), nm = cleanIng(ig.name) || String(ig.name).trim();
+        const key = normIng(nm) + '|' + unit;
         let row = rows.get(key);
-        if (!row) { row = {name: String(ig.name).trim(), unit, nums: [], texts: [], dishes: new Set(), category: guessCat(ig.name)}; rows.set(key, row); }
+        if (!row) { row = {name: nm, unit, nums: [], texts: [], dishes: new Set(), category: guessCat(nm)}; rows.set(key, row); }
         const n = parseQty(ig.qty);
         const raw = String(ig.qty || '').trim();
         if (n != null) row.nums.push(n); else if (raw && !row.texts.includes(raw)) row.texts.push(raw);
@@ -1235,7 +1252,7 @@ function collectRange(a, b){
     const qty = [r.nums.length ? fmtNum(r.nums.reduce((x, y) => x + y, 0)) : ''].concat(r.texts).filter(Boolean).join('＋');
     const row = {name: r.name, unit: r.unit, qty, category: r.category, dishes: [...r.dishes]};
     const ex = existing.find(i => normIng(i.name) === normIng(r.name));
-    if (ex) row.dup = {id: ex.id, label: (ex.name + ' ' + (ex.qty || '') + (ex.unit || '')).trim()};
+    if (ex) row.dup = {id: ex.id, label: (ex.name + ' ' + qtyLabel(ex.qty, ex.unit)).trim()};
     return row;
   });
   list.sort((x, y) => SCATS.indexOf(x.category) - SCATS.indexOf(y.category) || x.name.localeCompare(y.name, 'ja'));
@@ -1302,7 +1319,7 @@ SHEETS.newPassword = sh => head('新しいパスワード') + '<div class="sh-bo
   + '</div><div class="sh-foot"><button class="btn primary block" data-act="npSave">変更する</button></div>';
 
 /* ---------- import shifts from a photo ---------- */
-const IM_TYPES = [['shift:day','日勤'],['shift:evening','準夜勤'],['shift:night','深夜勤'],['shift:off','休み'],['shift:other','その他の勤務'],['plan:out','外出'],['plan:shopping','買い物'],['plan:chores','家事'],['plan:custom','予定（自由入力）']];
+const IM_TYPES = [['shift:day','日勤'],['shift:evening','準夜勤'],['shift:night','深夜勤'],['shift:a','A'],['shift:c','C'],['shift:e','E'],['shift:h','H'],['shift:iri','入り'],['shift:ake','明け'],['shift:off','休み'],['shift:other','その他の勤務'],['plan:out','外出'],['plan:shopping','買い物'],['plan:chores','家事'],['plan:custom','予定（自由入力）']];
 SHEETS.import = sh => {
   if (sh.step === 'busy') return head('写真から読み込む') + '<div class="sh-body"><div class="empty" style="padding:48px 8px"><div class="em">🔎</div><h2>読み取っています…</h2><p class="small">20〜40秒ほどかかることがあります。この画面のままお待ちください。</p></div></div>';
   if (sh.step === 'review') return importReviewHTML(sh);
@@ -1467,6 +1484,100 @@ function collectRF(sh){
   if (v('rf-serv') != null) d.servings = v('rf-serv');
   d.ingredients.forEach(g => { if (v('rf-in-' + g.id) != null) { g.name = v('rf-in-' + g.id); g.qty = v('rf-iq-' + g.id); g.unit = v('rf-iu-' + g.id); } });
 }
+/* ---------- 文章から一括入力（この端末の中だけで振り分ける。外部には送らない・無料） ---------- */
+// 材料の見出し（【A】【タレ】など）と、★・A などの印。買い物リストを作るときは見出しを飛ばし、印を外して数える
+const isIngHeader = g => !String(g.qty || '').trim() && /^[【\[［<＜〈《(（].{0,14}[】\]］>＞〉》)）]$/.test(String(g.name || '').trim());
+const cleanIng = s => String(s || '').trim().replace(/^[★☆●○◎◆◇■□▲△▼▽♦*＊※・]+\s*/, '').replace(/^[(（\[［【<＜〈]\s*[A-Za-zＡ-Ｚａ-ｚ★☆]\s*[)）\]］】>＞〉]\s*/, '').replace(/^[A-Za-zＡ-Ｚａ-ｚ](?:\s+|[:：])(?=\S)/, '').trim();
+const PZ_NUM = '(?:約)?(?:\\d+と\\d+/\\d+|\\d+/\\d+|\\d+(?:\\.\\d+)?|半)(?:\\s*[〜-]\\s*(?:\\d+と\\d+/\\d+|\\d+/\\d+|\\d+(?:\\.\\d+)?))?';
+const PZ_WORD = '(?:各)?(?:少々|少量|適量|適宜|ひとつまみ|ふたつまみ|ひとつかみ|ひとかけら|ひとかけ|ひと口|ひとさじ|お好みで|好みで|お好み|少し|半分|半量|たっぷり)';
+const PZ_PRE = '(?:大さじ|小さじ|大匙|小匙|計量カップ|カップ|大|小)';
+// 「名前 数量」の行。1:名前 2:言葉の数量 3:各 4:大さじ等 5:数 6:強/弱 7:数 8:単位 9:(かっこ)
+const RE_PZ_ING = new RegExp('^(.+?)[\\s:.・･]*(?:(' + PZ_WORD + ')|(各)?(' + PZ_PRE + ')\\s*(' + PZ_NUM + ')(強|弱)?|((?:各)?' + PZ_NUM + ')\\s*([^\\s\\d()\\[\\]【】/。、,!！?？]{0,5}?))\\s*(\\([^)]*\\))?\\s*$');
+const RE_PZ_QTY = new RegExp('^(?:(' + PZ_WORD + ')|(各)?(' + PZ_PRE + ')\\s*(' + PZ_NUM + ')(強|弱)?|((?:各)?' + PZ_NUM + ')\\s*([^\\s\\d()\\[\\]【】/。、,!！?？]{0,5}?))\\s*(\\([^)]*\\))?$');
+const RE_PZ_SERV = /(\d+(?:\.\d+)?(?:\s*[〜-]\s*\d+(?:\.\d+)?)?)\s*(?:人分|人前|名分|人(?=$|[)\s]))/;
+const PZ_PREMAP = {'大': '大さじ', '大匙': '大さじ', '小': '小さじ', '小匙': '小さじ', '計量カップ': 'カップ'};
+const PZ_GROUP = /^(調味料|合わせ調味料|タレ|たれ|ソース|ドレッシング|トッピング|下味|仕上げ|飾り|衣|生地|具|具材)$/;
+function pzQty(m, o){ // o = 正規表現の何番目から数量か
+  const word = m[o], kaku = m[o + 1] || '', pre = m[o + 2], num = m[o + 3], adj = m[o + 4] || '', num2 = m[o + 5], unit = m[o + 6] || '', paren = m[o + 7] || '';
+  const fix = t => String(t || '').replace(/-/g, '〜');
+  if (word) return {qty: word + paren, unit: ''};
+  if (pre) return {qty: kaku + fix(num) + adj + paren, unit: PZ_PREMAP[pre] || pre};
+  return {qty: fix(num2), unit: unit + paren};
+}
+function parseRecipeText(text){
+  const CIRC = c => { const n = c.codePointAt(0); for (const [a, b] of [[0x2460, 0x2473], [0x2776, 0x277F], [0x2780, 0x2789], [0x278A, 0x2793]]) if (n >= a && n <= b) return n - a + 1; return 0; };
+  const lines = String(text || '').split(/\r?\n/)
+    .map(l => l.trim().replace(/^[①-⑳❶-❿➀-➓]/, c => CIRC(c) + '. ').split(/([①-⑳❶-❿➀-➓])/).map((x, i) => i % 2 ? x : x.normalize('NFKC')).join('').replace(/⁄/g, '/').replace(/[~〜～]/g, '〜').replace(/\.{2,}|‥/g, ' ').replace(/\s+/g, ' ').trim());
+  const out = {name: '', servings: '', url: '', ings: [], steps: [], memo: [], left: []};
+  let mode = 'none', stepNumbered = false, buf = '', prevLeft = false;
+  const flush = () => { if (buf) { out.steps.push(buf); buf = ''; } };
+  const deco = l => l.replace(/^[\s【\[<〈《(■□◆◇●○★☆▼▽▶►・=*#-]+/, '').replace(/[\s】\]>〉》)■□◆◇●○★☆▼▽=*:-]+$/, '');
+  const addIng = (name, q) => {
+    name = name.replace(/^[・•*-]\s*/, '').replace(/[\s:.・･]+$/, '').trim();
+    if (!name) return false;
+    out.ings.push({id: gid('g'), name: name.slice(0, 100), qty: (q.qty || '').slice(0, 40), unit: (q.unit || '').slice(0, 30)});
+    return true;
+  };
+  const sentence = l => /[。!！]$|(ます|です|る|だけ|OK|完成)[。!！]?$/.test(l) || l.length > 28;
+  const stepLine = l => { const m = l.match(/^(?:step|ステップ|手順)\s*(\d{1,2})\s*[.)、,:]?\s*(.*)$/i) || l.match(/^\(?(\d{1,2})\s*[.)、,:]\s*(.*)$/) || l.match(/^(\d{1,2})\s+(.+)$/) || l.match(/^(\d{1,2})$/); return m ? (m[2] || '') : null; };
+  for (const raw of lines) {
+    let l = raw;
+    if (!l) continue;
+    if (/^https?:\/\/\S+$/i.test(l)) { if (!out.url) out.url = l; else out.left.push(l); continue; }
+    const head = deco(l);
+    if (/^(材料|ざいりょう|用意するもの)(と分量)?(?=$|[\s(【\[<:・/】\]>)]|\d)/.test(head) && head.length <= 20) {
+      flush(); mode = 'ings'; const sv = head.match(RE_PZ_SERV); if (sv && !out.servings) out.servings = sv[1]; continue;
+    }
+    if (/^(作り方|つくり方|作りかた|手順|調理手順|調理方法|作る手順|how to make)$/i.test(head)) { flush(); mode = 'steps'; continue; }
+    if (/^(ポイント|point|コツ|メモ|memo|ヒント|保存方法|保存|注意|アレンジ|おすすめ)/i.test(head) && head.length <= 12) { flush(); mode = 'memo'; out.memo.push(l); continue; }
+    const sv = l.match(RE_PZ_SERV);
+    if (sv && !deco(l.replace(sv[0], '').replace(/[()（）\s]/g, ''))) { if (!out.servings) out.servings = sv[1]; continue; }
+    if (out.name && norm(l) === norm(out.name)) continue; // 同じ料理名をもう一度貼ったとき
+    if (mode === 'memo') { out.memo.push(l); continue; }
+    if (mode === 'ings') {
+      const g = deco(l);
+      if (/^[【\[<〈《(■□◆◇▼▽]/.test(l) && !RE_PZ_ING.test(l) && g.length <= 14 || /^[A-Za-z★☆]$/.test(g) || PZ_GROUP.test(g) || (/[:：]$/.test(l) && g.length <= 10)) { if (g) out.ings.push({id: gid('g'), name: '【' + g + '】', qty: '', unit: ''}); continue; }
+      const last = out.ings[out.ings.length - 1];
+      let m = l.match(RE_PZ_QTY);
+      if (m && last && !last.qty && !isIngHeader(last)) { const q = pzQty(m, 1); last.qty = q.qty; last.unit = q.unit; continue; }
+      if (m) { out.left.push(l); continue; }
+      if ((m = l.match(/^(お好みで|好みで|あれば)\s*(.+)$/))) { addIng(m[2], {qty: m[1]}); continue; }
+      if ((m = l.match(RE_PZ_ING)) && l.length <= 40 && !/[。!！]$/.test(l)) { addIng(m[1], pzQty(m, 2)); continue; }
+      if (stepLine(l) != null && sentence(l)) mode = 'steps';
+      else if (!sentence(l)) { addIng(l, {}); continue; }
+      else mode = 'steps';
+    }
+    const st = stepLine(l);
+    if (mode === 'none') {
+      const mq = l.match(RE_PZ_QTY);
+      if (mq) { if (prevLeft && out.left.length) addIng(out.left.pop(), pzQty(mq, 1)); else out.left.push(l); prevLeft = false; continue; }
+      prevLeft = false;
+      if (st != null && (st === '' || sentence(st))) { mode = 'steps'; }
+      else if (!out.name && !/^#/.test(l) && l.length <= 40 && !RE_PZ_ING.test(l)) { out.name = l.replace(RE_PZ_SERV, '').replace(/[(（]\s*[)）]/g, '').trim() || l; continue; }
+      else if (RE_PZ_ING.test(l) && l.length <= 30 && !/[。!！]$/.test(l)) { const m = l.match(RE_PZ_ING); addIng(m[1], pzQty(m, 2)); continue; }
+      else if (out.ings.length && sentence(l) && !/^#/.test(l)) { mode = 'steps'; }
+      else { out.left.push(l); prevLeft = !sentence(l) && l.length <= 20 && !/^#/.test(l); continue; }
+    }
+    // 作り方：番号のある行で新しい手順。番号がない行は前の手順の続き（画像の文字認識で行が分かれるため）
+    if (st != null) { flush(); stepNumbered = true; buf = st; continue; }
+    if (/^#/.test(l)) { out.left.push(l); continue; }
+    buf += l;
+    if (!stepNumbered && /([。!！]|ます|です|る|た|完成)$/.test(l)) flush();
+  }
+  flush();
+  const zen = t => t.replace(/!/g, '！').replace(/\?/g, '？').replace(/\(/g, '（').replace(/\)/g, '）');
+  out.name = zen(out.name);
+  out.steps = out.steps.map(x => zen(x.trim())).filter(Boolean);
+  out.memo = out.memo.map(zen); out.left = out.left.map(zen);
+  out.servings = servText(out.servings);
+  return out;
+}
+SHEETS.pasteRecipe = sh => head('文章から一括入力') + '<div class="sh-body">'
+  + '<p class="hint">レシピの画像を長押しして「テキスト認識表示」などでコピーした文章を、ここに貼り付けてください。何枚分でも続けて貼れます。</p>'
+  + '<div class="field"><label for="pr-text">貼り付ける文章</label><textarea class="in" id="pr-text" rows="13" placeholder="例：&#10;鶏むね肉のねぎ塩だれ&#10;材料（2〜3人分）&#10;鶏むね肉 1枚&#10;長ねぎ 1/2本&#10;ごま油 大さじ1と1/2&#10;塩 少々&#10;作り方&#10;1. 鶏肉をそぎ切りにする&#10;2. …"></textarea></div>'
+  + '<p class="muted small">料理名・何人分・材料・作り方に振り分けて、登録画面に入れます。振り分けられなかった文章はメモ欄に残します。この端末の中だけで行うので、料金はかかりません。</p>'
+  + '<p class="err" id="pr-err" hidden></p></div>'
+  + '<div class="sh-foot"><button class="btn primary block" data-act="prApply">振り分けて登録画面に入れる</button></div>';
 const loadImg = src => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src; });
 function drawScaled(img, max, q){
   const s = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
@@ -1593,10 +1704,9 @@ function buildImport(json){
     if (!r || !r.name) return;
     const nid = uuid(); idMap.set(r.id, nid);
     const md = (r.made_dates || r.madeDates || []).filter(validDate);
-    const serv = parseInt(r.servings, 10);
     recipes.push({id: nid, space_id: target, name: String(r.name).slice(0, 200), category: RC(r.category),
       ingredients: (r.ingredients || []).filter(g => g && g.name).map(g => ({id: g.id || gid('g'), name: String(g.name), qty: String(g.qty == null ? '' : g.qty), unit: String(g.unit || '')})),
-      servings: serv > 0 && serv < 100 ? serv : null, steps: String(r.steps || '').slice(0, 20000), url: safeUrl(r.url), memo: String(r.memo || '').slice(0, 5000),
+      servings: servText(r.servings) || null, steps: String(r.steps || '').slice(0, 20000), url: safeUrl(r.url), memo: String(r.memo || '').slice(0, 5000),
       favorite: !!r.favorite, made: !!r.made || md.length > 0, made_dates: md, thumb: (r.thumb && String(r.thumb).length <= 60000) ? r.thumb : '', has_photo: false});
   });
   const ph = json.recipePhotos || json.photos || {};
@@ -1955,6 +2065,31 @@ const A = {
   rfAddIng: () => { const sh = topSheet(); collectRF(sh); const g = {id: gid('g'), name: '', qty: '', unit: ''}; sh.draft.ingredients.push(g); refreshSheet(sh); const n = document.getElementById('rf-in-' + g.id); if (n) n.focus(); },
   rfDelIng: el => { const sh = topSheet(); collectRF(sh); sh.draft.ingredients = sh.draft.ingredients.filter(g => g.id !== el.dataset.k); refreshSheet(sh); },
   rfPhotoDel: () => { const sh = topSheet(); collectRF(sh); sh.draft.thumb = ''; sh.photoFull = null; sh.photoChanged = true; refreshSheet(sh); },
+  rfPaste: () => { const sh = topSheet(); if (!sh || sh.type !== 'recipeForm') return; collectRF(sh); openSheet('pasteRecipe', {formSid: sh.sid, tall: true, static: true}); },
+  prApply: () => {
+    const sh = topSheet(); if (!sh || sh.type !== 'pasteRecipe') return;
+    const ta = document.getElementById('pr-text'), text = ta ? ta.value : '';
+    if (!text.trim()) { const er = document.getElementById('pr-err'); if (er) { er.textContent = '文章を貼り付けてください'; er.hidden = false; } return; }
+    const form = S.sheets.find(x => x.sid === sh.formSid);
+    if (!form) { closeSheet(sh.sid); return; }
+    collectRF(form);
+    // 空いている欄だけに入れる（入力済みの内容は上書きしない）。保存は「保存する」を押したときだけ
+    const r = parseRecipeText(text), d = form.draft;
+    if (r.name && !String(d.name || '').trim()) d.name = r.name.slice(0, 200);
+    else if (r.name && norm(r.name) !== norm(d.name)) r.left.unshift(r.name);
+    if (r.servings && !servText(d.servings)) d.servings = r.servings;
+    if (r.url && !String(d.url || '').trim()) d.url = r.url;
+    if (r.ings.length) d.ingredients = d.ingredients.filter(g => String(g.name || '').trim() || String(g.qty || '').trim()).concat(r.ings);
+    if (r.steps.length) d.steps = [String(d.steps || '').trim(), r.steps.join('\n')].filter(Boolean).join('\n').slice(0, 20000);
+    const memo = r.memo.concat(r.left.length ? ['【振り分けられなかった文章】'].concat(r.left) : []);
+    if (memo.length) d.memo = [String(d.memo || '').trim(), memo.join('\n')].filter(Boolean).join('\n\n').slice(0, 5000);
+    form.pasteNote = (r.ings.length || r.steps.length
+      ? '文章から入力しました（材料 ' + r.ings.filter(g => !isIngHeader(g)).length + '件・作り方 ' + r.steps.length + '手順）。内容を確認・修正してから「保存する」を押してください。'
+      : 'うまく振り分けられなかったので、文章をメモ欄に入れました。必要なところを材料や作り方に移してください。')
+      + (r.left.length && (r.ings.length || r.steps.length) ? '振り分けられなかった文章（' + r.left.length + '行）はメモ欄に残しています。' : '');
+    closeSheet(sh.sid); refreshSheet(form);
+    const b = document.getElementById('rf-b'); if (b) b.scrollTop = 0;
+  },
   rfFull: () => { const sh = topSheet(); collectRF(sh); sh.mode = 'full'; while (sh.draft.ingredients.length < 3) sh.draft.ingredients.push({id: gid('g'), name: '', qty: '', unit: ''}); refreshSheet(sh); },
   rfSave: async () => {
     const sh = topSheet(); collectRF(sh);
@@ -1967,12 +2102,11 @@ const A = {
     if (sh.mode === 'quick' && !url) return bad((d.url || '').trim() ? 'URLの形が正しくないようです（https:// から始まるURLを貼り付けてください）' : 'URLを入力してください');
     if ((d.url || '').trim() && !url) return bad('URLの形が正しくないようです（https:// から始まるURLを貼り付けてください）');
     if (sh.photoBusy) return bad('写真の準備が終わるまでお待ちください');
-    const serv = parseInt(String(d.servings || '').normalize('NFKC'), 10);
     const made = !!d.made || (d.made_dates || []).length > 0;
     const rec = {
       id: sh.id, space_id: sh.space, name: name.slice(0, 200), category: RCATS.includes(d.category) ? d.category : 'その他',
       ingredients: d.ingredients.filter(g => (g.name || '').trim()).map(g => ({id: g.id, name: g.name.trim(), qty: String(g.qty || '').trim(), unit: String(g.unit || '').trim()})),
-      servings: serv > 0 && serv < 100 ? serv : null, steps: (d.steps || '').trim(), url, memo: (d.memo || '').trim(),
+      servings: servText(d.servings) || null, steps: (d.steps || '').trim(), url, memo: (d.memo || '').trim(),
       favorite: !!d.favorite, made: !!d.made, made_dates: d.made ? (d.made_dates || []) : [],
       thumb: d.thumb || '', has_photo: sh.photoChanged ? !!sh.photoFull : !!(d.has_photo && d.thumb)
     };
