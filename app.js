@@ -631,17 +631,18 @@ function inviteCardHTML(){
     + '<button class="btn sm primary" data-act="' + (hasShared() ? 'openInvite' : 'goShare') + '">招待する</button><button class="x" data-act="hideInvite" aria-label="この案内を閉じる">' + IC.x + '</button></div>';
 }
 /* ---------- こむぎ（うさぎのお知らせ係） ---------- */
-const BUNNY_SVG = '<svg class="bun-svg" viewBox="0 0 80 100" aria-hidden="true">'
-  + '<defs><g id="bun-sil">'
+// 頭から足までのシルエット（線用と塗り用に2回描く。<use> は iOS Safari で色が付かないため使わない）
+const BUNNY_SIL = ''
   + '<circle cx="57.5" cy="85.5" r="4.2"/>'
   + '<path d="M40 55 C 52.5 55, 58 67, 58 77.5 C 58 87.5, 50.5 92.5, 40 92.5 C 29.5 92.5, 22 87.5, 22 77.5 C 22 67, 27.5 55, 40 55 Z"/>'
   + '<ellipse cx="32.5" cy="91.6" rx="6" ry="3.3"/><ellipse cx="47.5" cy="91.6" rx="6" ry="3.3"/>'
   + '<ellipse cx="24.2" cy="72" rx="4.1" ry="5.6" transform="rotate(22 24.2 72)"/>'
   + '<ellipse cx="56" cy="69.5" rx="4.1" ry="5.6" transform="rotate(-34 56 69.5)"/>'
-  + '<g transform="rotate(-5 40 46)"><path d="M31.9 29.6 C 24.2 22.8, 13.4 22.4, 10.3 29.1 C 8.6 33.2, 12.6 36.3, 17.9 34.6 C 23.3 33, 28.3 32.5, 33.2 33.6 Z"/><path class="bun-ear" d="M45.4 33.2 C 43.1 17, 47.6 3, 54 3.5 C 60.2 4, 59.8 17.9, 54 34.1 Z"/><ellipse cx="40" cy="44" rx="22" ry="18.9"/></g>'
-  + '</g></defs>'
+  + '<g transform="rotate(-5 40 46)"><path d="M31.9 29.6 C 24.2 22.8, 13.4 22.4, 10.3 29.1 C 8.6 33.2, 12.6 36.3, 17.9 34.6 C 23.3 33, 28.3 32.5, 33.2 33.6 Z"/><path class="bun-ear" d="M45.4 33.2 C 43.1 17, 47.6 3, 54 3.5 C 60.2 4, 59.8 17.9, 54 34.1 Z"/><ellipse cx="40" cy="44" rx="22" ry="18.9"/></g>';
+const BUNNY_SVG = '<svg class="bun-svg" viewBox="0 0 80 100" aria-hidden="true">'
   + '<g class="bun-spoon"><path class="bun-wood" d="M58.4 70.5 L 65.4 53"/><ellipse class="bun-woodhead" cx="66.6" cy="49.6" rx="3.3" ry="5" transform="rotate(21 66.6 49.6)"/></g>'
-  + '<use href="#bun-sil" class="bun-sil-line"/><use href="#bun-sil" class="bun-sil-fill"/>'
+  + '<g class="bun-sil-line" fill="#B27A84" stroke="#B27A84" stroke-width="3.4" stroke-linejoin="round">' + BUNNY_SIL + '</g>'
+  + '<g class="bun-sil-fill" fill="#FBDDE3">' + BUNNY_SIL + '</g>'
   + '<ellipse class="bun-belly" cx="40" cy="80" rx="10" ry="8.2"/>'
   + '<g transform="rotate(-5 40 46)">'
   + '<path class="bun-inear" d="M30.1 30.1 C 23.8 26.5, 16.6 26.4, 13.8 29.8 C 12.9 31.8, 15.2 32.8, 18.8 31.9 C 22.4 31, 26.4 30.7, 30 31.4 Z"/><path class="bun-inear bun-ear" d="M49 28.2 C 48.3 17, 50.6 8.5, 53.7 8.7 C 56.6 9.1, 56 17.4, 53 28.7 Z"/>'
