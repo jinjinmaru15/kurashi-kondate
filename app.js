@@ -6,7 +6,7 @@
 'use strict';
 
 const CFG = window.KONDATE_CONFIG || {};
-const APP_VERSION = '2.7';
+const APP_VERSION = '2.7.1';
 
 /* ---------- utils ---------- */
 const $ = (s, r) => (r || document).querySelector(s);
@@ -660,18 +660,20 @@ function inviteCardHTML(){
     + '<button class="btn sm primary" data-act="' + (hasShared() ? 'openInvite' : 'goShare') + '">招待する</button><button class="x" data-act="hideInvite" aria-label="この案内を閉じる">' + IC.x + '</button></div>';
 }
 /* ---------- こむぎ（うさぎのお知らせ係） ---------- */
-// 色は CSS でも指定しているが、読み込みが遅れても黒くならないよう属性にも持たせる
+// こむぎ：チョコペンで描いたような線のうさぎ。色は属性に書いて、iOS Safari でも必ず色がつくようにする
 const BUNNY_SVG = '<svg class="bun-svg" viewBox="0 0 80 80" aria-hidden="true">'
-  + '<path class="bun-fur" fill="#FBDDE3" stroke="#9A6A70" stroke-width="2" stroke-linejoin="round" d="M31 34 C 22.5 26.5, 10.5 26, 7 33.5 C 5.1 38, 9.5 41.4, 15.5 39.6 C 21.5 37.8, 27 37.2, 32.5 38.4 Z"/>'
-  + '<path class="bun-inear" fill="#F2AFBC" d="M29 34.6 C 22 30.6, 14 30.4, 10.9 34.2 C 9.9 36.4, 12.5 37.6, 16.5 36.6 C 20.5 35.6, 24.9 35.2, 28.9 36 Z"/>'
-  + '<g class="bun-ear"><path class="bun-fur" fill="#FBDDE3" stroke="#9A6A70" stroke-width="2" stroke-linejoin="round" d="M46 38 C 43.5 20, 48.5 4.5, 55.5 5 C 62.5 5.6, 62 21, 55.5 39 Z"/>'
-  + '<path class="bun-inear" fill="#F2AFBC" d="M50 32.5 C 49.2 20, 51.8 10.6, 55.2 10.8 C 58.4 11.2, 57.8 20.5, 54.4 33 Z"/></g>'
-  + '<ellipse class="bun-fur" fill="#FBDDE3" stroke="#9A6A70" stroke-width="2" stroke-linejoin="round" cx="40" cy="50" rx="24.5" ry="21"/>'
-  + '<g class="bun-eyes"><ellipse class="bun-eye" fill="#4A3132" cx="31" cy="50.5" rx="2.6" ry="3.2"/><ellipse class="bun-eye" fill="#4A3132" cx="49" cy="50.5" rx="2.6" ry="3.2"/>'
-  + '<circle class="bun-shine" fill="#fff" cx="31.9" cy="49.3" r="0.95"/><circle class="bun-shine" fill="#fff" cx="49.9" cy="49.3" r="0.95"/></g>'
-  + '<ellipse class="bun-cheek" fill="#EE8E9F" opacity=".75" cx="24.6" cy="57" rx="4.4" ry="2.7"/><ellipse class="bun-cheek" fill="#EE8E9F" opacity=".75" cx="55.4" cy="57" rx="4.4" ry="2.7"/>'
-  + '<path class="bun-nose" fill="#DE7488" d="M37.9 54.8 Q 40 53.4 42.1 54.8 Q 40 57 37.9 54.8 Z"/>'
-  + '<path class="bun-mouth" fill="none" stroke="#9A6A70" stroke-width="1.5" stroke-linecap="round" d="M40 56.4 V 57.8 M40 57.8 Q 38.1 60 36.4 58.4 M40 57.8 Q 41.9 60 43.6 58.4"/>'
+  + '<g class="bun-spark bun-ln" fill="none" stroke="#6B4636" stroke-width="2.1" stroke-linecap="round"><path d="M40 4.5v3.2M34.6 6.2l1.5 2.6M45.4 6.2l-1.5 2.6"/></g>'
+  + '<g class="bun-ear"><g stroke="#6B4636" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" fill="#FFFDF8">'
+  + '<path d="M28.5 40 C 23.5 27, 23 11.5, 28.6 10 C 34.2 8.8, 35.4 25, 34.6 39"/><path d="M45.4 39 C 44.6 25, 45.8 8.8, 51.4 10 C 57 11.5, 56.5 27, 51.5 40"/></g>'
+  + '<path d="M29.6 34 C 27.6 26, 27.8 16.5, 29.6 15.6 C 31.2 15, 31.8 24, 31.6 33.5" fill="#F6C9D0"/><path d="M50.4 34 C 52.4 26, 52.2 16.5, 50.4 15.6 C 48.8 15, 48.2 24, 48.4 33.5" fill="#F6C9D0"/></g>'
+  + '<path d="M12.5 55 C 12.5 42.5, 24 37.5, 40 37.5 C 56 37.5, 67.5 42.5, 67.5 55 C 67.5 66.5, 56 71.5, 40 71.5 C 24 71.5, 12.5 66.5, 12.5 55 Z" fill="#FFFDF8" stroke="#6B4636" stroke-width="2.1" stroke-linejoin="round"/>'
+  + '<path d="M37.6 38.6 C 37 35.2, 39 33.4, 41.4 34.4" fill="none" stroke="#6B4636" stroke-width="1.8" stroke-linecap="round"/>'
+  + '<g class="bun-ln" stroke="#6B4636" stroke-width="1.6" stroke-linecap="round"><path d="M11.6 46.2 L 7.6 44.6 M11 49.6 L 7 49"/><path d="M68.4 46.2 L 72.4 44.6 M69 49.6 L 73 49"/></g>'
+  + '<ellipse cx="26.5" cy="59.5" rx="4.2" ry="2.5" fill="#F2A7B4" opacity=".55"/><ellipse cx="53.5" cy="59.5" rx="4.2" ry="2.5" fill="#F2A7B4" opacity=".55"/>'
+  + '<g class="bun-eyes"><circle cx="32" cy="53.5" r="1.9" fill="#4A2F25"/><circle cx="48" cy="53.5" r="1.9" fill="#4A2F25"/></g>'
+  + '<path d="M34.6 58.4 Q 37.2 62.4 40 58.8 Q 42.8 62.4 45.4 58.4" fill="none" stroke="#6B4636" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'
+  + '<g class="bun-hearts"><path d="M12 26.5 c -1.6 -2.4 -5.2 -1.2 -4.2 1.6 c 0.6 1.6 2.6 2.8 4.2 4 c 1.6 -1.2 3.6 -2.4 4.2 -4 c 1 -2.8 -2.6 -4 -4.2 -1.6 z" fill="#E88C9C"/>'
+  + '<path d="M7.2 36.4 c -1 -1.5 -3.3 -0.8 -2.7 1 c 0.4 1 1.7 1.8 2.7 2.6 c 1 -0.8 2.3 -1.6 2.7 -2.6 c 0.6 -1.8 -1.7 -2.5 -2.7 -1 z" fill="#E88C9C" opacity=".8"/></g>'
   + '</svg>';
 function bunnyMessages(){
   const t = todayS(), hour = new Date().getHours();
