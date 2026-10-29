@@ -6,7 +6,7 @@
 'use strict';
 
 const CFG = window.KONDATE_CONFIG || {};
-const APP_VERSION = '2.7.1';
+const APP_VERSION = '2.7.2';
 
 /* ---------- utils ---------- */
 const $ = (s, r) => (r || document).querySelector(s);
@@ -770,7 +770,7 @@ function monthHTML(sel){
     const cls = ['cell', dd.getMonth() !== mo && 'out', s === t && 'today', s === sel && 'sel', dow === 0 && 'sun', dow === 6 && 'sat', i >= (rows - 1) * 7 && 'last'].filter(Boolean).join(' ');
     const shown = dishes.slice(0, 2).map(x => '<span class="m">' + esc(x.name) + '</span>').join('')
       + (dishes.length > 2 ? '<span class="m more">ほか' + (dishes.length - 2) + '品</span>' : '');
-    const badges = shifts.slice(0, 2).map(e => '<i class="sb sh-' + e.type + (shared && e.person_id ? ' mk-' + colorOf(e.person_id) : '') + '">' + esc(shiftOf(e.type).short) + '</i>').join('');
+    const badges = shifts.slice(0, 2).map(e => '<i class="sb sh-' + e.type + (shared && e.person_id ? ' mk-' + colorOf(e.person_id) : '') + '">' + esc(e.type === 'other' && (e.title || '').trim() ? Array.from(e.title.trim())[0] : shiftOf(e.type).short) + '</i>').join('');
     const WL = weeksL[Math.floor(i / 7)];
     let lanes = '';
     for (let l = 0; l < WL.used; l++) {
